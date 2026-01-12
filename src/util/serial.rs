@@ -6,8 +6,20 @@ use core::fmt;
 use spin::Mutex;
 use x86_64::instructions::port::Port;
 
-/// シリアルポート (COM1)
+/// シリアルポート (COM1) - 割込み対応版
 static SERIAL: Mutex<SerialPort> = Mutex::new(SerialPort::new(0x3F8));
+
+/// 割込み無効化を伴うロック取得
+fn lock_serial<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut SerialPort) -> R,
+{
+    // 割込みを無効化してロック取得
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut serial = SERIAL.lock();
+        f(&mut serial)
+    })
+}
 
 /// UARTシリアルポート
 pub struct SerialPort {
@@ -83,13 +95,15 @@ impl fmt::Write for SerialPort {
 
 /// シリアルポートを初期化
 pub fn init() {
-    SERIAL.lock().init();
+    lock_serial(|serial| serial.init());
 }
 
-/// シリアルポートに文字列を出力
+/// シリアルポートに文字列を出力（割込み対応）
 pub fn print(args: fmt::Arguments) {
     use core::fmt::Write;
-    SERIAL.lock().write_fmt(args).unwrap();
+    lock_serial(|serial| {
+        serial.write_fmt(args).unwrap();
+    });
 }
 
 /// シリアル出力マクロ

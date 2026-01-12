@@ -5,6 +5,9 @@
 /// カーネル本体
 pub mod kernel;
 
+/// 割込み管理
+pub mod interrupt;
+
 /// メモリ管理、GDT、TSSを含む
 pub mod mem;
 

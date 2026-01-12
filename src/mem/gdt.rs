@@ -9,6 +9,9 @@ use spin::Once;
 use x86_64::instructions::tables::load_tss;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 
+/// ダブルフォルト用ISTインデックス（TSSと同じ値を使用）
+pub const DOUBLE_FAULT_IST_INDEX: u16 = tss::DOUBLE_FAULT_IST_INDEX;
+
 static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
 
 /// GDTセレクタ
