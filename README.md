@@ -10,16 +10,12 @@ SwiftCoreOS に使用されています。（開発途中）
 
 ## ビルド
 ```bash
-cargo build --target x86_64-unknown-uefi
+cargo build
 ```
 
 ### 実行
-QEMU で実行する場合:
 ```bash
-# OVMF (UEFI firmware) が必要
-qemu-system-x86_64 \
-    -bios /usr/share/ovmf/OVMF.fd \
-    -drive format=raw,file=target/x86_64-unknown-uefi/debug/SwiftCore.efi
+cargo run
 ```
 
 ## ライセンス
