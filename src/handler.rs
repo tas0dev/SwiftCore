@@ -1,7 +1,7 @@
 /// パニックハンドラ
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    log::error!("PANIC!");
+    log::error!("!!! KERNEL PANIC !!!");
     log::error!("{}", info);
     loop {
         #[cfg(target_arch = "x86_64")]
