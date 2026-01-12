@@ -28,6 +28,12 @@ pub extern "C" fn kmain(boot_info: &'static BootInfo) -> ! {
 
     println!("Kernel ready");
 
+    // 割り込みを無効にしてメインループへ
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        core::arch::asm!("cli"); // 割り込み無効化
+    }
+
     loop {
         #[cfg(target_arch = "x86_64")]
         unsafe {
