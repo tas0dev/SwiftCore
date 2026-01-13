@@ -32,17 +32,8 @@ pub extern "C" fn kmain(boot_info: &'static BootInfo) -> ! {
     // メモリ管理初期化
     mem::init(boot_info.physical_memory_offset);
 
-    interrupt::idt::init();
-    sprintln!("IDT loaded successfully");
-    vprintln!("IDT loaded successfully");
-
     sprintln!("Kernel ready");
     vprintln!("Kernel ready - entering idle loop...");
-
-    #[cfg(target_arch = "x86_64")]
-    unsafe {
-        core::arch::asm!("cli");
-    }
 
     loop {
         #[cfg(target_arch = "x86_64")]
