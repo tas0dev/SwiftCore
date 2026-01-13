@@ -110,7 +110,7 @@ pub fn print(args: fmt::Arguments) {
 #[macro_export]
 macro_rules! sprint {
     ($($arg:tt)*) => {
-        $crate::util::serial::print(format_args!($($arg)*))
+        $crate::util::console::print(format_args!($($arg)*))
     };
 }
 

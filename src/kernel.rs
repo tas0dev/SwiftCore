@@ -1,14 +1,29 @@
 //! カーネルエントリーポイント
 
-use crate::{interrupt, mem, sprintln, util, BootInfo};
+use crate::{interrupt, mem, sprintln, util, vprintln, BootInfo};
 
 /// カーネルエントリーポイント
 #[no_mangle]
 pub extern "C" fn kmain(boot_info: &'static BootInfo) -> ! {
-    // シリアルポートを初期化
-    util::serial::init();
-    sprintln!("=== SwiftCore Kernel v0.1.0 ===");
-    sprintln!("Serial output initialized");
+    util::console::init();
+
+    // フレームバッファ初期化
+    util::vga::init(
+        boot_info.framebuffer_addr,
+        boot_info.screen_width,
+        boot_info.screen_height,
+        boot_info.stride,
+    );
+
+    vprintln!("=== SwiftCore Kernel v0.1.0 ===");
+    vprintln!("Framebuffer: {:#x}", boot_info.framebuffer_addr);
+    vprintln!(
+        "Resolution: {}x{}",
+        boot_info.screen_width,
+        boot_info.screen_height
+    );
+    vprintln!("");
+
     sprintln!(
         "Physical memory offset: {:#x}",
         boot_info.physical_memory_offset
@@ -17,23 +32,22 @@ pub extern "C" fn kmain(boot_info: &'static BootInfo) -> ! {
     // メモリ管理初期化
     mem::init(boot_info.physical_memory_offset);
 
-    // 割込みシステム初期化
-    interrupt::init();
+    interrupt::idt::init();
+    sprintln!("IDT loaded successfully");
+    vprintln!("IDT loaded successfully");
 
     sprintln!("Kernel ready");
-    sprintln!("Waiting for keyboard input...");
-    
-    // メインループ
-    let mut count = 0u64;
+    vprintln!("Kernel ready - entering idle loop...");
+
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        core::arch::asm!("cli");
+    }
+
     loop {
-        count += 1;
-        if count % 100000 == 0 {
-            sprintln!("Loop iteration: {}", count);
-        }
-        
         #[cfg(target_arch = "x86_64")]
         unsafe {
-            core::arch::asm!("pause");
+            core::arch::asm!("hlt");
         }
     }
 }

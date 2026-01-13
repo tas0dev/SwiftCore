@@ -23,4 +23,14 @@ pub use kernel::kmain;
 pub struct BootInfo {
     /// 物理メモリオフセット
     pub physical_memory_offset: u64,
+    /// フレームバッファアドレス
+    pub framebuffer_addr: u64,
+    /// フレームバッファサイズ
+    pub framebuffer_size: usize,
+    /// 画面の幅（ピクセル）
+    pub screen_width: usize,
+    /// 画面の高さ（ピクセル）
+    pub screen_height: usize,
+    /// 1行あたりのバイト数
+    pub stride: usize,
 }

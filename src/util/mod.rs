@@ -1,2 +1,3 @@
+pub mod console;
 pub mod fifo;
-pub mod serial;
+pub mod vga;

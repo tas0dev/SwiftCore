@@ -3,7 +3,6 @@
 //! IDT、PIC、割込みハンドラを管理
 
 pub mod idt;
-pub mod keyboard;
 pub mod pic;
 pub mod timer;
 

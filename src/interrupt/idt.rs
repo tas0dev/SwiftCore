@@ -14,22 +14,11 @@ pub fn init() {
     let idt = IDT.call_once(|| {
         let mut idt = InterruptDescriptorTable::new();
 
-        // 例外ハンドラ
-        idt.breakpoint.set_handler_fn(breakpoint_handler);
-        idt.page_fault.set_handler_fn(page_fault_handler);
-
-        // ダブルフォルトハンドラ（ISTを使用）
         unsafe {
             idt.double_fault
                 .set_handler_fn(double_fault_handler)
                 .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
         }
-
-        // タイマー割込み (IRQ 0 -> INT 0x20)
-        idt[0x20].set_handler_fn(timer_interrupt_handler);
-
-        // キーボード割込み (IRQ 1 -> INT 0x21)
-        idt[0x21].set_handler_fn(keyboard_interrupt_handler);
 
         idt
     });
@@ -82,18 +71,7 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
     }
 }
 
-/// キーボード割込みハンドラ (IRQ 1)
+/// キーボード割込みハンドラ
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    use x86_64::instructions::port::Port;
-
-    let mut port = Port::new(0x60);
-    let scancode: u8 = unsafe { port.read() };
-
-    // キーボードスキャンコードをFIFOに追加
-    crate::interrupt::keyboard::handle_keyboard_interrupt(scancode);
-
-    // PICにEOI送信
-    unsafe {
-        crate::interrupt::pic::notify_end_of_interrupt(0x21);
-    }
+    // 完全に空 - まずこれで動くか確認
 }
