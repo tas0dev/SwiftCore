@@ -4,7 +4,7 @@
 
 use crate::{sprintln, MemoryRegion, Result};
 
-pub mod frame_allocator;
+pub mod frame;
 pub mod gdt;
 pub mod idt;
 pub mod paging;
@@ -23,9 +23,9 @@ pub fn init(physical_memory_offset: u64) {
 
 /// メモリマップを設定してフレームアロケータを初期化
 pub fn init_frame_allocator(memory_map: &'static [MemoryRegion]) -> Result<()> {
-    frame_allocator::init(memory_map);
+    frame::init(memory_map);
 
-    if let Some((total, frames)) = frame_allocator::get_memory_info() {
+    if let Some((total, frames)) = frame::get_memory_info() {
         sprintln!(
             "Physical memory: {} MB ({} frames)",
             total / 1024 / 1024,

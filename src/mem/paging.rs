@@ -46,7 +46,7 @@ pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<(
         .as_mut()
         .ok_or(KernelError::Memory(MemoryError::NotMapped))?;
 
-    let mut allocator_lock = super::frame_allocator::FRAME_ALLOCATOR.lock();
+    let mut allocator_lock = super::frame::FRAME_ALLOCATOR.lock();
     let allocator = allocator_lock
         .as_mut()
         .ok_or(KernelError::Memory(MemoryError::OutOfMemory))?;
