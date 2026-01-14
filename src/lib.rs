@@ -19,6 +19,9 @@ pub mod mem;
 /// パニックハンドラ
 pub mod panic;
 
+/// タスク管理
+pub mod task;
+
 /// ユーティリティモジュール
 pub mod util;
 
