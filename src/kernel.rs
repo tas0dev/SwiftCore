@@ -1,6 +1,8 @@
 //! カーネルエントリーポイント
 
-use crate::{debug, info, mem, util, vprintln, BootInfo, KernelError, MemoryRegion, Result};
+use crate::{
+    debug, info, interrupt, mem, util, vprintln, BootInfo, KernelError, MemoryRegion, Result,
+};
 
 /// カーネルエントリーポイント
 #[no_mangle]
@@ -80,8 +82,8 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
     }
 
     // タイマー割り込みを設定（10ms周期）
-    mem::idt::init_pit();
-    mem::idt::enable_timer_interrupt();
+    interrupt::init_pit();
+    interrupt::enable_timer_interrupt();
 
     info!("Timer interrupt configured (10ms period)");
 

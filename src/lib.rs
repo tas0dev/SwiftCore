@@ -7,6 +7,9 @@
 /// エラー型定義
 pub mod error;
 
+/// 割込み管理
+pub mod interrupt;
+
 /// カーネル本体
 pub mod kernel;
 

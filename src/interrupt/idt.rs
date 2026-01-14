@@ -1,16 +1,12 @@
-//! IDT管理モジュール
+//! IDT (Interrupt Descriptor Table) 管理
 //!
-//! IDTの初期化と管理
+//! IDTの初期化と例外ハンドラの定義
 
 use crate::{debug, error, mem::gdt, warn};
-use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Once;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
 static IDT: Once<InterruptDescriptorTable> = Once::new();
-
-// タイマー割り込みカウンタ（100回 = 1秒）
-static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 
 /// IDTを初期化
 pub fn init() {
@@ -55,7 +51,7 @@ pub fn init() {
         idt.virtualization.set_handler_fn(virtualization_handler);
 
         // ハードウェア割り込みハンドラ（32-47番）
-        idt[32].set_handler_fn(timer_interrupt_handler); // Timer
+        idt[32].set_handler_fn(super::timer::timer_interrupt_handler); // Timer
         idt[33].set_handler_fn(keyboard_interrupt_handler); // Keyboard
 
         // それ以外のハードウェア割り込みはとりあえずスタブ
@@ -82,6 +78,10 @@ pub fn init() {
         idtr.limit
     );
 }
+
+// ========================================
+// CPU例外ハンドラ
+// ========================================
 
 extern "x86-interrupt" fn divide_error_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: DIVIDE ERROR");
@@ -222,202 +222,29 @@ extern "x86-interrupt" fn virtualization_handler(stack_frame: InterruptStackFram
     halt_cpu();
 }
 
-extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    // タイマーカウンタを増加
-    let _ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
-
-    // 割り込みコンテキストではログ出力を避ける（VGAバッファへのアクセスが競合する可能性）
-    // TODO: 割り込み安全なロギング機構を実装
-
-    // End of Interrupt (EOI) 信号をPICに送信
-    send_eoi(32);
-}
+// ========================================
+// ハードウェア割り込みハンドラ
+// ========================================
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     debug!("INTERRUPT: KEYBOARD");
     // キーボード入力を処理
     // TODO: キーボードドライバ実装
-    send_eoi(33);
+    super::send_eoi(33);
 }
 
 extern "x86-interrupt" fn generic_interrupt_handler(_stack_frame: InterruptStackFrame) {
     debug!("INTERRUPT: GENERIC");
     // EOIを送信
     unsafe {
-        PIC_SLAVE.end_of_interrupt();
-        PIC_MASTER.end_of_interrupt();
+        super::pic::PIC_SLAVE.end_of_interrupt();
+        super::pic::PIC_MASTER.end_of_interrupt();
     }
 }
 
-/// マスタPIC
-struct Pic {
-    offset: u8,
-    command: u16,
-    data: u16,
-}
-
-impl Pic {
-    unsafe fn end_of_interrupt(&self) {
-        use x86_64::instructions::port::Port;
-        Port::new(self.command).write(0x20u8);
-    }
-}
-
-const PIC_MASTER: Pic = Pic {
-    offset: 32,
-    command: 0x20,
-    data: 0x21,
-};
-
-const PIC_SLAVE: Pic = Pic {
-    offset: 40,
-    command: 0xa0,
-    data: 0xa1,
-};
-
-/// PITを停止（UEFI起動時の状態をクリア）
-pub fn disable_pit() {
-    debug!("Disabling PIT...");
-    unsafe {
-        use x86_64::instructions::port::Port;
-
-        // Channel 0を停止（one-shot mode、カウント0）
-        Port::<u8>::new(0x43).write(0x30);
-        Port::<u8>::new(0x40).write(0x00);
-        Port::<u8>::new(0x40).write(0x00);
-        // Channel 1,2も停止
-        Port::<u8>::new(0x43).write(0x70); // Channel 1
-        Port::<u8>::new(0x41).write(0x00);
-        Port::<u8>::new(0x41).write(0x00);
-
-        Port::<u8>::new(0x43).write(0xb0); // Channel 2
-        Port::<u8>::new(0x42).write(0x00);
-        Port::<u8>::new(0x42).write(0x00);
-    }
-    debug!("PIT disabled");
-}
-
-/// PITを初期化して10ms周期のタイマー割り込みを設定
-pub fn init_pit() {
-    debug!("Initializing PIT for 10ms timer interrupt...");
-    unsafe {
-        use x86_64::instructions::port::Port;
-
-        // PIT base frequency: 1.193182 MHz
-        // 10ms = 100 Hz
-        // Divisor = 1193182 / 100 = 11932 (0x2E9C)
-        let divisor: u16 = 11932;
-
-        // Channel 0, LSB+MSB, Mode 2 (rate generator), Binary
-        Port::<u8>::new(0x43).write(0x34);
-
-        // IO待機
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-
-        // LSBを送信
-        Port::<u8>::new(0x40).write((divisor & 0xff) as u8);
-
-        // IO待機
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-
-        // MSBを送信
-        Port::<u8>::new(0x40).write(((divisor >> 8) & 0xff) as u8);
-    }
-    debug!("PIT configured for 10ms interrupts");
-}
-
-/// タイマー割り込み（IRQ0）を有効化
-pub fn enable_timer_interrupt() {
-    debug!("Enabling timer interrupt (IRQ0)...");
-    unsafe {
-        use x86_64::instructions::port::Port;
-
-        // PIC master のIRQ0のマスクを解除（ビット0を0にする）
-        // 他の割り込みは全てマスク（0xfe = 11111110）
-        Port::<u8>::new(0x21).write(0xfe);
-
-        // IO待機
-        for _ in 0..1000 {
-            core::hint::spin_loop();
-        }
-    }
-    debug!("Timer interrupt enabled");
-}
-
-pub fn init_pic() {
-    debug!("Initializing PIC (8259A)...");
-
-    unsafe {
-        use x86_64::instructions::port::Port;
-
-        // 先にすべての割り込みをマスク
-        Port::<u8>::new(PIC_MASTER.data).write(0xffu8);
-        Port::<u8>::new(PIC_SLAVE.data).write(0xffu8);
-        for _ in 0..1000 {
-            core::hint::spin_loop();
-        }
-
-        // ICW1: Initialize
-        Port::new(PIC_MASTER.command).write(0x11u8);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-        Port::new(PIC_SLAVE.command).write(0x11u8);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-
-        // ICW2: Vector offset
-        Port::new(PIC_MASTER.data).write(PIC_MASTER.offset);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-        Port::new(PIC_SLAVE.data).write(PIC_SLAVE.offset);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-
-        // ICW3: Cascade
-        Port::new(PIC_MASTER.data).write(4u8); // Slave on IRQ2
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-        Port::new(PIC_SLAVE.data).write(2u8); // Cascade identity
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-
-        // ICW4: 8086 mode
-        Port::new(PIC_MASTER.data).write(0x01u8);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-        Port::new(PIC_SLAVE.data).write(0x01u8);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-
-        // 再度すべての割り込みをマスク（念のため）
-        Port::<u8>::new(PIC_MASTER.data).write(0xffu8);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-        Port::<u8>::new(PIC_SLAVE.data).write(0xffu8);
-        for _ in 0..100 {
-            core::hint::spin_loop();
-        }
-
-        // EOIを送信して保留中の割り込みをクリア
-        Port::<u8>::new(PIC_MASTER.command).write(0x20u8);
-        Port::<u8>::new(PIC_SLAVE.command).write(0x20u8);
-    }
-
-    debug!("PIC initialized, all interrupts masked");
-}
+// ========================================
+// ヘルパー関数
+// ========================================
 
 /// CPU割り込みを無効化してシステムを停止
 fn halt_cpu() {
@@ -432,17 +259,5 @@ fn halt_forever() -> ! {
     x86_64::instructions::interrupts::disable();
     loop {
         x86_64::instructions::hlt();
-    }
-}
-
-/// PICにEnd of Interrupt信号を送信
-fn send_eoi(interrupt_id: u8) {
-    unsafe {
-        if interrupt_id >= 40 {
-            // Slave PIC
-            PIC_SLAVE.end_of_interrupt();
-        }
-        // Master PIC
-        PIC_MASTER.end_of_interrupt();
     }
 }

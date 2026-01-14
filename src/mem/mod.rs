@@ -1,12 +1,11 @@
 //! メモリ管理モジュール
 //!
-//! GDT、TSS、IDT、ページング、フレームアロケータ
+//! GDT、TSS、ページング、フレームアロケータ
 
-use crate::{sprintln, MemoryRegion, Result};
+use crate::{interrupt, sprintln, MemoryRegion, Result};
 
 pub mod frame;
 pub mod gdt;
-pub mod idt;
 pub mod paging;
 pub mod tss;
 
@@ -18,11 +17,11 @@ pub fn init(physical_memory_offset: u64) {
 
     paging::init(physical_memory_offset);
     gdt::init();
-    idt::init();
+    interrupt::init_idt();
 
     // PITを停止してからPICを初期化
-    idt::disable_pit();
-    idt::init_pic();
+    interrupt::disable_pit();
+    interrupt::init_pic();
 
     sprintln!("Memory initialized");
 }
