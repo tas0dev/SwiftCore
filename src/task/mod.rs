@@ -1021,38 +1021,33 @@ pub unsafe extern "C" fn switch_context(old_context: *mut Context, new_context: 
         // コンテキストスイッチ中の割り込みを禁止
         "cli",
         // 現在のコンテキストを保存
-        "mov [rdi + 0x00], rsp",   // rsp
-        "mov [rdi + 0x08], rbp",   // rbp
-        "mov [rdi + 0x10], rbx",   // rbx
-        "mov [rdi + 0x18], r12",   // r12
-        "mov [rdi + 0x20], r13",   // r13
-        "mov [rdi + 0x28], r14",   // r14
-        "mov [rdi + 0x30], r15",   // r15
-
+        "mov [rdi + 0x00], rsp", // rsp
+        "mov [rdi + 0x08], rbp", // rbp
+        "mov [rdi + 0x10], rbx", // rbx
+        "mov [rdi + 0x18], r12", // r12
+        "mov [rdi + 0x20], r13", // r13
+        "mov [rdi + 0x28], r14", // r14
+        "mov [rdi + 0x30], r15", // r15
         // 戻り先アドレス（call命令でスタックにpushされている）を保存
         "mov rax, [rsp]",
-        "mov [rdi + 0x38], rax",   // rip
-
+        "mov [rdi + 0x38], rax", // rip
         // RFLAGSを保存
         "pushfq",
         "pop rax",
-        "mov [rdi + 0x40], rax",   // rflags
-
+        "mov [rdi + 0x40], rax", // rflags
         // 新しいコンテキストを復元
-        "mov rax, [rsi + 0x38]",   // 新しいrip
-        "mov rcx, [rsi + 0x40]",   // 新しいrflags
-        "mov rbx, [rsi + 0x10]",   // rbx
-        "mov r12, [rsi + 0x18]",   // r12
-        "mov r13, [rsi + 0x20]",   // r13
-        "mov r14, [rsi + 0x28]",   // r14
-        "mov r15, [rsi + 0x30]",   // r15
-        "mov rbp, [rsi + 0x08]",   // rbp
-        "mov rsp, [rsi + 0x00]",   // rsp
-
+        "mov rax, [rsi + 0x38]", // 新しいrip
+        "mov rcx, [rsi + 0x40]", // 新しいrflags
+        "mov rbx, [rsi + 0x10]", // rbx
+        "mov r12, [rsi + 0x18]", // r12
+        "mov r13, [rsi + 0x20]", // r13
+        "mov r14, [rsi + 0x28]", // r14
+        "mov r15, [rsi + 0x30]", // r15
+        "mov rbp, [rsi + 0x08]", // rbp
+        "mov rsp, [rsi + 0x00]", // rsp
         // RFLAGSを復元
         "push rcx",
         "popfq",
-
         // 新しいripへジャンプ
         "jmp rax"
     );
