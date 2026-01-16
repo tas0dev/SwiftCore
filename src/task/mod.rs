@@ -5,6 +5,16 @@
 use crate::interrupt::spinlock::SpinLock;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+/// スレッド終了時に呼ばれるハンドラ
+/// この関数から戻ることはない
+extern "C" fn thread_exit_handler() -> ! {
+    // スレッドが終了した場合の処理
+    // 通常はここに到達することはない
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
 /// プロセスID生成用カウンタ
 static NEXT_PROCESS_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -276,14 +286,37 @@ impl Thread {
         let mut context = Context::new();
 
         // スタックポインタをスタックの最後に設定（スタックは下に伸びる）
-        context.rsp = kernel_stack + kernel_stack_size as u64;
-        context.rbp = context.rsp;
+        let stack_top = kernel_stack + kernel_stack_size as u64;
+
+        // スタック上にダミーリターンアドレスを配置
+        let stack_ptr = stack_top - 16;
+
+        unsafe {
+            let stack_addr = stack_ptr as *mut u64;
+            // thread_exit_handlerアドレスをスタック上に配置
+            let entry_addr = stack_ptr as *mut u64;
+            *entry_addr = entry_point as u64;
+            *entry_addr.add(1) = thread_exit_handler as u64;
+        }
+
+        // rscanにはダミーリターンアドレスを含んだ位置を設定
+        context.rsp = stack_ptr;
+        context.rbp = stack_top;
 
         // エントリーポイントをripに設定
         context.rip = entry_point as u64;
 
         // RFLAGSの初期値（割り込み有効）
         context.rflags = 0x202; // IF (Interrupt Flag) = 1
+
+        crate::debug!(
+            "Creating thread '{}': stack={:#x}, size={:#x}, rsp={:#x}, rip={:#x}",
+            name,
+            kernel_stack,
+            kernel_stack_size,
+            context.rsp,
+            context.rip
+        );
 
         Self {
             id: ThreadId::new(),
@@ -590,6 +623,49 @@ impl ThreadQueue {
             .find(|t| t.state() == ThreadState::Ready)
     }
 
+    /// 指定されたスレッドの次のReady状態のスレッドを取得（ラウンドロビン用）
+    ///
+    /// current_idの次のスロットから検索を開始し、見つからなければ先頭から検索
+    pub fn peek_next_after(&mut self, current_id: Option<ThreadId>) -> Option<&mut Thread> {
+        if let Some(current) = current_id {
+            // 現在のスレッドのインデックスを探す
+            let mut current_index = None;
+            for (i, slot) in self.threads.iter().enumerate() {
+                if let Some(thread) = slot.as_ref() {
+                    if thread.id() == current {
+                        current_index = Some(i);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(start_idx) = current_index {
+                // 現在のインデックスの次から検索
+                for i in (start_idx + 1)..Self::MAX_THREADS {
+                    if let Some(thread) = &self.threads[i] {
+                        if thread.state() == ThreadState::Ready {
+                            // インデックスを使って可変参照を返す
+                            return self.threads[i].as_mut();
+                        }
+                    }
+                }
+
+                // 見つからなければ先頭から現在のインデックスまで検索
+                for i in 0..=start_idx {
+                    if let Some(thread) = &self.threads[i] {
+                        if thread.state() == ThreadState::Ready {
+                            // インデックスを使って可変参照を返す
+                            return self.threads[i].as_mut();
+                        }
+                    }
+                }
+            }
+        }
+
+        // current_idがない場合は最初のReady状態のスレッドを返す
+        self.peek_next_mut()
+    }
+
     /// 指定された状態のスレッド数をカウント
     pub fn count_by_state(&self, state: ThreadState) -> usize {
         self.threads
@@ -824,8 +900,8 @@ pub fn schedule() -> Option<ThreadId> {
         }
     }
 
-    // 次に実行すべきReady状態のスレッドを探す
-    if let Some(next_thread) = queue.peek_next_mut() {
+    // 現在のスレッドの次のReady状態のスレッドを探す
+    if let Some(next_thread) = queue.peek_next_after(current) {
         let next_id = next_thread.id();
         next_thread.set_state(ThreadState::Running);
 
@@ -847,15 +923,26 @@ pub fn yield_now() {
         return;
     }
 
+    crate::debug!("yield_now() called");
+
     // スケジューリングを実行
     if let Some(next_id) = schedule() {
         let current = current_thread_id();
 
+        crate::debug!("yield_now: current={:?}, next={:?}", current, next_id);
+
         // 次のスレッドが現在のスレッドと異なる場合のみ切り替え
         if Some(next_id) != current {
             set_current_thread(Some(next_id));
-            // TODO: コンテキストスイッチを実行
-            // switch_context(current, next_id);
+
+            crate::debug!("Calling switch_to_thread...");
+
+            // コンテキストスイッチを実行
+            unsafe {
+                switch_to_thread(current, next_id);
+            }
+
+            crate::debug!("Returned from switch_to_thread");
         }
     }
 }
@@ -916,67 +1003,102 @@ pub fn terminate_thread(id: ThreadId) {
 /// コンテキストスイッチ
 ///
 /// 現在のスレッドから次のスレッドへコンテキストを切り替える
+///
+/// Context構造体のレイアウト:
+/// offset 0x00: rsp
+/// offset 0x08: rbp  
+/// offset 0x10: rbx
+/// offset 0x18: r12
+/// offset 0x20: r13
+/// offset 0x28: r14
+/// offset 0x30: r15
+/// offset 0x38: rip
+/// offset 0x40: rflags
 #[unsafe(naked)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn switch_context(old_context: *mut Context, new_context: *const Context) {
     core::arch::naked_asm!(
-        // 現在のコンテキストを保存（old_context）
-        // rdi = old_context, rsi = new_context
+        // コンテキストスイッチ中の割り込みを禁止
+        "cli",
+        // 現在のコンテキストを保存
+        "mov [rdi + 0x00], rsp",   // rsp
+        "mov [rdi + 0x08], rbp",   // rbp
+        "mov [rdi + 0x10], rbx",   // rbx
+        "mov [rdi + 0x18], r12",   // r12
+        "mov [rdi + 0x20], r13",   // r13
+        "mov [rdi + 0x28], r14",   // r14
+        "mov [rdi + 0x30], r15",   // r15
 
-        // 汎用レジスタを保存
-        "mov [rdi + 0x00], rsp", // rsp
-        "mov [rdi + 0x08], rbp", // rbp
-        "mov [rdi + 0x10], rbx", // rbx
-        "mov [rdi + 0x18], r12", // r12
-        "mov [rdi + 0x20], r13", // r13
-        "mov [rdi + 0x28], r14", // r14
-        "mov [rdi + 0x30], r15", // r15
-        // 戻り先アドレス（rip）を保存
+        // 戻り先アドレス（call命令でスタックにpushされている）を保存
         "mov rax, [rsp]",
-        "mov [rdi + 0x38], rax", // rip
+        "mov [rdi + 0x38], rax",   // rip
+
         // RFLAGSを保存
         "pushfq",
         "pop rax",
-        "mov [rdi + 0x40], rax", // rflags
-        // 新しいコンテキストを復元（new_context）
+        "mov [rdi + 0x40], rax",   // rflags
+
+        // 新しいコンテキストを復元
+        "mov rax, [rsi + 0x38]",   // 新しいrip
+        "mov rcx, [rsi + 0x40]",   // 新しいrflags
+        "mov rbx, [rsi + 0x10]",   // rbx
+        "mov r12, [rsi + 0x18]",   // r12
+        "mov r13, [rsi + 0x20]",   // r13
+        "mov r14, [rsi + 0x28]",   // r14
+        "mov r15, [rsi + 0x30]",   // r15
+        "mov rbp, [rsi + 0x08]",   // rbp
+        "mov rsp, [rsi + 0x00]",   // rsp
 
         // RFLAGSを復元
-        "mov rax, [rsi + 0x40]",
-        "push rax",
+        "push rcx",
         "popfq",
-        // 汎用レジスタを復元
-        "mov rsp, [rsi + 0x00]", // rsp
-        "mov rbp, [rsi + 0x08]", // rbp
-        "mov rbx, [rsi + 0x10]", // rbx
-        "mov r12, [rsi + 0x18]", // r12
-        "mov r13, [rsi + 0x20]", // r13
-        "mov r14, [rsi + 0x28]", // r14
-        "mov r15, [rsi + 0x30]", // r15
-        // 新しいスレッドのripにジャンプ
-        "mov rax, [rsi + 0x38]",
-        "jmp rax",
-    )
+
+        // 新しいripへジャンプ
+        "jmp rax"
+    );
 }
 
 /// 現在のスレッドから指定されたスレッドIDにコンテキストスイッチ
 pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) {
+    crate::debug!(
+        "switch_to_thread: current_id={:?}, next_id={:?}",
+        current_id,
+        next_id
+    );
+
     let mut queue = THREAD_QUEUE.lock();
 
     // 現在のスレッドのコンテキストへのポインタを取得
     let old_context_ptr = if let Some(id) = current_id {
         if let Some(thread) = queue.get_mut(id) {
-            thread.context_mut() as *mut Context
+            let ptr = thread.context_mut() as *mut Context;
+            crate::debug!(
+                "  Current context ptr: {:p}, rsp={:#x}, rip={:#x}",
+                ptr,
+                thread.context().rsp,
+                thread.context().rip
+            );
+            ptr
         } else {
             return; // 現在のスレッドが見つからない
         }
     } else {
         // 現在のスレッドがない場合（初回スイッチ）
         // ダミーのコンテキストを使用
+        crate::debug!("  No current thread (initial switch)");
         core::ptr::null_mut()
     };
 
     // 次のスレッドのコンテキストへのポインタを取得
     let new_context_ptr = if let Some(thread) = queue.get(next_id) {
-        thread.context() as *const Context
+        let ptr = thread.context() as *const Context;
+        crate::debug!(
+            "  Next context ptr: {:p}, rsp={:#x}, rip={:#x}",
+            ptr,
+            thread.context().rsp,
+            thread.context().rip
+        );
+        ptr
     } else {
         return; // 次のスレッドが見つからない
     };
@@ -984,11 +1106,15 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
     // ロックを解放してからコンテキストスイッチ
     drop(queue);
 
+    crate::debug!("About to perform context switch...");
+
     // コンテキストスイッチを実行
     if old_context_ptr.is_null() {
         // 初回スイッチの場合、現在のコンテキストを保存せずにジャンプ
+        crate::debug!("Initial context switch (no save)");
         let ctx = &*new_context_ptr;
         core::arch::asm!(
+            "cli",
             "mov rsp, {rsp}",
             "mov rbp, {rbp}",
             "mov rbx, {rbx}",
@@ -998,6 +1124,7 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
             "mov r15, {r15}",
             "push {rflags}",
             "popfq",
+            // エントリへジャンプ
             "jmp {rip}",
             rsp = in(reg) ctx.rsp,
             rbp = in(reg) ctx.rbp,
@@ -1011,7 +1138,14 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
             options(noreturn)
         );
     } else {
+        crate::debug!("Normal context switch (save and restore)");
+        crate::debug!(
+            "  Calling switch_context({:p}, {:p})",
+            old_context_ptr,
+            new_context_ptr
+        );
         switch_context(old_context_ptr, new_context_ptr);
+        crate::debug!("  Returned from switch_context");
     }
 }
 
@@ -1036,5 +1170,40 @@ pub fn schedule_and_switch() {
                 switch_to_thread(current, next_id);
             }
         }
+    }
+}
+
+/// 最初のスレッドを起動
+///
+/// スケジューラを開始して最初のスレッドにジャンプ
+pub fn start_scheduling() -> ! {
+    // 最初のスレッドを選択
+    if let Some(first_id) = peek_next_thread() {
+        set_current_thread(Some(first_id));
+
+        // デバッグ情報を出力
+        with_thread_mut(first_id, |thread| {
+            crate::debug!(
+                "Starting first thread: {} (id={:?})",
+                thread.name(),
+                thread.id()
+            );
+            crate::debug!(
+                "  Context: rsp={:#x}, rip={:#x}, rflags={:#x}",
+                thread.context().rsp,
+                thread.context().rip,
+                thread.context().rflags
+            );
+            thread.set_state(ThreadState::Running);
+        });
+
+        // 最初のスレッドにジャンプ（戻ってこない）
+        unsafe {
+            switch_to_thread(None, first_id);
+        }
+
+        unreachable!("switch_to_thread should never return");
+    } else {
+        panic!("No threads to schedule!");
     }
 }
