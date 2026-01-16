@@ -62,7 +62,7 @@ impl KernelError {
             _ => false,
         }
     }
-    
+
     /// このエラーがリトライ可能かどうか
     pub fn is_retryable(&self) -> bool {
         match self {

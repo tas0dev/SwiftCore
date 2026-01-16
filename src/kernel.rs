@@ -1,7 +1,8 @@
 //! カーネルエントリーポイント
 
 use crate::{
-    debug, info, interrupt, mem, util, vprintln, BootInfo, KernelError, MemoryRegion, Result,
+    debug, info, interrupt, mem, sprintln, task, util, vprintln, BootInfo, KernelError,
+    MemoryRegion, Result,
 };
 
 /// カーネルエントリーポイント
@@ -75,6 +76,9 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
 
     info!("Kernel ready");
 
+    // タスクシステムを初期化
+    init_tasks();
+
     // 割込みを有効化
     debug!("Enabling interrupts...");
     unsafe {
@@ -87,10 +91,115 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
 
     info!("Timer interrupt configured (10ms period)");
 
-    // 無限ループ（永遠に実行）
-    info!("Entering idle loop");
+    // スケジューリングを開始（戻ってこない）
+    info!("Starting task scheduler...");
+    task::start_scheduling();
+}
+
+/// タスクシステムを初期化
+fn init_tasks() {
+    info!("Initializing task system...");
+
+    // スケジューラを初期化
+    task::init_scheduler();
+
+    // プロセスAを作成
+    let process_a = task::Process::new(
+        "Process A",
+        task::PrivilegeLevel::Core,
+        None, // 親プロセスなし
+        0,    // 優先度
+    );
+    let process_a_id = task::add_process(process_a).expect("Failed to create process A");
+
+    // プロセスBを作成
+    let process_b = task::Process::new(
+        "Process B",
+        task::PrivilegeLevel::Core,
+        None, // 親プロセスなし
+        0,    // 優先度
+    );
+    let process_b_id = task::add_process(process_b).expect("Failed to create process B");
+
+    // タスクA用のスタックを確保（8KB）
+    const STACK_SIZE: usize = 8192;
+    static mut STACK_A: [u8; STACK_SIZE] = [0; STACK_SIZE];
+    static mut STACK_B: [u8; STACK_SIZE] = [0; STACK_SIZE];
+
+    let stack_a_addr = unsafe { core::ptr::addr_of!(STACK_A) as u64 };
+    let stack_b_addr = unsafe { core::ptr::addr_of!(STACK_B) as u64 };
+
+    debug!(
+        "Stack A: {:#x} - {:#x}",
+        stack_a_addr,
+        stack_a_addr + STACK_SIZE as u64
+    );
+    debug!(
+        "Stack B: {:#x} - {:#x}",
+        stack_b_addr,
+        stack_b_addr + STACK_SIZE as u64
+    );
+    debug!("Task A entry: {:p}", task_a_entry as *const ());
+    debug!("Task B entry: {:p}", task_b_entry as *const ());
+
+    // スレッドAを作成
+    let thread_a = task::Thread::new(
+        process_a_id,
+        "Thread A",
+        task_a_entry,
+        stack_a_addr,
+        STACK_SIZE,
+    );
+    task::add_thread(thread_a).expect("Failed to create thread A");
+
+    // スレッドBを作成
+    let thread_b = task::Thread::new(
+        process_b_id,
+        "Thread B",
+        task_b_entry,
+        stack_b_addr,
+        STACK_SIZE,
+    );
+    task::add_thread(thread_b).expect("Failed to create thread B");
+
+    info!("Task system initialized");
+    info!("  Processes: {}", task::process_count());
+    info!("  Threads: {}", task::thread_count());
+}
+
+/// タスクAのエントリーポイント
+fn task_a_entry() -> ! {
+    let mut counter = 0u64;
     loop {
-        x86_64::instructions::hlt();
+        vprintln!("Hello from Task A ({})", counter);
+        sprintln!("Hello from Task A ({})", counter);
+        counter += 1;
+
+        // 他のタスクに譲る
+        task::yield_now();
+
+        // 少し待機
+        for _ in 0..100_000 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+/// タスクBのエントリーポイント
+fn task_b_entry() -> ! {
+    let mut counter = 0u64;
+    loop {
+        vprintln!("Hello from Task B ({})", counter);
+        sprintln!("Hello from Task B ({})", counter);
+        counter += 1;
+
+        // 他のタスクに譲る
+        task::yield_now();
+
+        // 少し待機
+        for _ in 0..100_000 {
+            core::hint::spin_loop();
+        }
     }
 }
 

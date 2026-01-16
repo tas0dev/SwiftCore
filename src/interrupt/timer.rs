@@ -14,11 +14,16 @@ pub extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptSta
     // タイマーカウンタを増加
     let _ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
 
-    // 割り込みコンテキストではログ出力を避ける（デッドロックを防止）
-    // TODO: 割り込み安全なロギング機構を実装
+    // スケジューラのティックを実行
+    // 注意：割り込みハンドラ内では実際のコンテキストスイッチは行わない
+    // スケジューリングが必要かどうかだけチェック
+    let _ = crate::task::scheduler_tick();
 
     // End of Interrupt (EOI) 信号をPICに送信
     super::send_eoi(32);
+
+    // TODO: 割り込みから戻った後、コンテキストスイッチが必要な場合は実行
+    // 現時点では、yield_now()を明示的に呼ぶ必要がある
 }
 
 /// 現在のタイマーティック数を取得
