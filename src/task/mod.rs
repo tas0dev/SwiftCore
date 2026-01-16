@@ -345,7 +345,155 @@ impl core::fmt::Debug for Thread {
     }
 }
 
-// TODO: プロセステーブルの実装
+/// プロセステーブル
+///
+/// システム内のすべてのプロセスを管理する
+pub struct ProcessTable {
+    /// プロセスの配列（最大容量）
+    processes: [Option<Process>; Self::MAX_PROCESSES],
+    /// 現在のプロセス数
+    count: usize,
+}
+
+impl ProcessTable {
+    /// プロセステーブルの最大容量
+    pub const MAX_PROCESSES: usize = 256;
+
+    /// 新しいプロセステーブルを作成
+    pub const fn new() -> Self {
+        const INIT: Option<Process> = None;
+        Self {
+            processes: [INIT; Self::MAX_PROCESSES],
+            count: 0,
+        }
+    }
+
+    /// プロセスを追加
+    ///
+    /// # Returns
+    /// 成功時はプロセスIDを返す。テーブルが満杯の場合はNone
+    pub fn add(&mut self, process: Process) -> Option<ProcessId> {
+        if self.count >= Self::MAX_PROCESSES {
+            return None;
+        }
+
+        let id = process.id();
+
+        // 空きスロットを探す
+        for slot in &mut self.processes {
+            if slot.is_none() {
+                *slot = Some(process);
+                self.count += 1;
+                return Some(id);
+            }
+        }
+
+        None
+    }
+
+    /// プロセスIDでプロセスを取得
+    pub fn get(&self, id: ProcessId) -> Option<&Process> {
+        self.processes
+            .iter()
+            .find_map(|slot| slot.as_ref().filter(|p| p.id() == id))
+    }
+
+    /// プロセスIDでプロセスの可変参照を取得
+    pub fn get_mut(&mut self, id: ProcessId) -> Option<&mut Process> {
+        self.processes
+            .iter_mut()
+            .find_map(|slot| slot.as_mut().filter(|p| p.id() == id))
+    }
+
+    /// プロセスを削除
+    ///
+    /// # Returns
+    /// 削除されたプロセスを返す。存在しない場合はNone
+    pub fn remove(&mut self, id: ProcessId) -> Option<Process> {
+        for slot in &mut self.processes {
+            if let Some(ref process) = slot {
+                if process.id() == id {
+                    self.count -= 1;
+                    return slot.take();
+                }
+            }
+        }
+        None
+    }
+
+    /// すべてのプロセスを反復処理
+    pub fn iter(&self) -> impl Iterator<Item = &Process> {
+        self.processes.iter().filter_map(|slot| slot.as_ref())
+    }
+
+    /// すべてのプロセスを可変反復処理
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Process> {
+        self.processes.iter_mut().filter_map(|slot| slot.as_mut())
+    }
+
+    /// 現在のプロセス数を取得
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    /// プロセステーブルが満杯かどうか
+    pub fn is_full(&self) -> bool {
+        self.count >= Self::MAX_PROCESSES
+    }
+
+    /// プロセステーブルが空かどうか
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+}
+
+/// グローバルプロセステーブル
+static PROCESS_TABLE: SpinLock<ProcessTable> = SpinLock::new(ProcessTable::new());
+
+/// プロセステーブルにプロセスを追加
+pub fn add_process(process: Process) -> Option<ProcessId> {
+    PROCESS_TABLE.lock().add(process)
+}
+
+/// プロセスIDでプロセス情報を取得（読み取り専用操作）
+pub fn with_process<F, R>(id: ProcessId, f: F) -> Option<R>
+where
+    F: FnOnce(&Process) -> R,
+{
+    let table = PROCESS_TABLE.lock();
+    table.get(id).map(f)
+}
+
+/// プロセスIDでプロセス情報を可変操作
+pub fn with_process_mut<F, R>(id: ProcessId, f: F) -> Option<R>
+where
+    F: FnOnce(&mut Process) -> R,
+{
+    let mut table = PROCESS_TABLE.lock();
+    table.get_mut(id).map(f)
+}
+
+/// プロセスを削除
+pub fn remove_process(id: ProcessId) -> Option<Process> {
+    PROCESS_TABLE.lock().remove(id)
+}
+
+/// すべてのプロセスに対して操作を実行
+pub fn for_each_process<F>(mut f: F)
+where
+    F: FnMut(&Process),
+{
+    let table = PROCESS_TABLE.lock();
+    for process in table.iter() {
+        f(process);
+    }
+}
+
+/// 現在のプロセス数を取得
+pub fn process_count() -> usize {
+    PROCESS_TABLE.lock().count()
+}
+
 // TODO: スレッドキューの実装
 // TODO: スケジューラの実装
 // TODO: コンテキストスイッチの実装
