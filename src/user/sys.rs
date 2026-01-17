@@ -14,6 +14,12 @@ pub enum SyscallNumber {
     IpcSend = 3,
     /// IPC受信
     IpcRecv = 4,
+    /// コンソールへ書き込み
+    ConsoleWrite = 5,
+    /// initfs 読み込み
+    InitfsRead = 6,
+    /// 終了
+    Exit = 7,
 }
 
 #[inline(always)]
