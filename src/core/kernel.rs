@@ -94,6 +94,9 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
     // スケジューリングを開始（戻ってこない）
     info!("Starting task scheduler...");
     task::start_scheduling();
+
+    #[allow(unreachable_code)]
+    Ok(())
 }
 
 /// タスクシステムを初期化
