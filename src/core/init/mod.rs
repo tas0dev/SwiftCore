@@ -1,8 +1,12 @@
 //! 起動時に実行する初期化処理をまとめたモジュール
 
+use crate::{
+    debug, interrupt, mem, task, util, BootInfo, MemoryRegion, Result,
+};
+
 pub mod fs;
 
-fn kinit() {
+pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
     util::console::init();
     util::vga::init(
         boot_info.framebuffer_addr,
@@ -19,7 +23,7 @@ fn kinit() {
     };
 
     for (i, region) in memory_map.iter().enumerate() {
-        crate::debug!(
+        debug!(
             "  Region {}: {:#x} - {:#x} ({:?})",
             i,
             region.start,
@@ -34,11 +38,13 @@ fn kinit() {
     mem::init_frame_allocator(memory_map)?;
 
     fs::init();
-    
+
     unsafe {
         x86_64::instructions::interrupts::enable();
     }
 
     interrupt::init_pit();
     interrupt::enable_timer_interrupt();
+
+    Ok(memory_map)
 }
