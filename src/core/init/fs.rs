@@ -7,7 +7,7 @@
 use core::str;
 
 const EXT2_MAGIC: u16 = 0xEF53;
-const EXT2_IMAGE: &[u8] = include_bytes!("initfs.ext2");
+const EXT2_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/initfs.ext2"));
 
 #[derive(Debug, Clone, Copy)]
 struct Superblock {
