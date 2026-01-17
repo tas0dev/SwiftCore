@@ -7,7 +7,7 @@ default-run = "boot"
 
 [lib]
 name = "swiftcore"
-path = "src/lib.rs"
+path = "src/core/lib.rs"
 
 [[bin]]
 name = "boot"
