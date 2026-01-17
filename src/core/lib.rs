@@ -22,6 +22,9 @@ pub mod panic;
 /// タスク管理
 pub mod task;
 
+/// システムコール
+pub mod syscall;
+
 /// ユーティリティモジュール
 pub mod util;
 

@@ -2,9 +2,10 @@
 //!
 //! IDTの初期化と例外ハンドラの定義
 
-use crate::{debug, error, mem::gdt, warn};
+use crate::{debug, error, mem::gdt, syscall, warn};
 use spin::Once;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use x86_64::PrivilegeLevel;
 
 static IDT: Once<InterruptDescriptorTable> = Once::new();
 
@@ -59,8 +60,16 @@ pub fn init() {
             idt[i].set_handler_fn(generic_interrupt_handler);
         }
 
+        // システムコール割り込み (0x80)
+        idt[0x80]
+            .set_handler_fn(syscall::syscall_interrupt_handler)
+            .set_privilege_level(PrivilegeLevel::Ring3);
+
         // 48-255番も念のため設定（未使用の割り込みベクタ）
         for i in 48..=255 {
+            if i == 0x80 {
+                continue;
+            }
             idt[i].set_handler_fn(generic_interrupt_handler);
         }
 
