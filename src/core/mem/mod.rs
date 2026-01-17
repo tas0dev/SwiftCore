@@ -8,6 +8,7 @@ pub mod frame;
 pub mod gdt;
 pub mod paging;
 pub mod tss;
+pub mod user;
 
 pub fn init(physical_memory_offset: u64) {
     sprintln!("Initializing memory...");
