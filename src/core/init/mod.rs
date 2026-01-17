@@ -1,7 +1,7 @@
 //! 起動時に実行する初期化処理をまとめたモジュール
 
 use crate::{
-    debug, interrupt, mem, task, util, BootInfo, MemoryRegion, Result,
+    debug, driver, interrupt, mem, task, util, BootInfo, MemoryRegion, Result,
 };
 
 pub mod fs;
@@ -33,6 +33,7 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
     }
 
     task::init_scheduler();
+    driver::ps2_keyboard::init();
 
     mem::init(boot_info.physical_memory_offset);
     mem::init_frame_allocator(memory_map)?;

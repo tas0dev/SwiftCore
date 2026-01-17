@@ -73,14 +73,6 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
         return Err(KernelError::Process(ProcessError::MaxProcessesReached));
     }
 
-    match fs::read("test.txt") {
-        Some(data) => match core::str::from_utf8(data) {
-            Ok(text) => sprintln!("{}", text),
-            Err(_) => sprintln!("test.txt: {} bytes", data.len()),
-        },
-        None => sprintln!("test.txt: not found"),
-    }
-
     task::start_scheduling();
     
     #[allow(unreachable_code)]
