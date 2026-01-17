@@ -89,6 +89,11 @@ pub fn enable_scheduler() {
     SCHEDULER.lock().enable();
 }
 
+/// タイムスライスを設定
+pub fn set_time_slice(slice: u64) {
+    SCHEDULER.lock().set_time_slice(slice);
+}
+
 /// スケジューラを無効化
 pub fn disable_scheduler() {
     SCHEDULER.lock().disable();
