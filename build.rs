@@ -143,7 +143,7 @@ fn copy_service(manifest_dir: &Path, name: &str, stage_dir: &Path) {
         .or_else(|| build_service(manifest_dir, name));
 
     if let Some(bin) = bin {
-        let dest = stage_dir.join(name);
+        let dest = stage_dir.join(format!("{}.service", name));
         let _ = fs::copy(&bin, &dest);
     } else {
         println!(
