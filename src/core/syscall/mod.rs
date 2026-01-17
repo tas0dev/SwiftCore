@@ -5,10 +5,11 @@ pub mod task;
 pub mod time;
 pub mod console;
 pub mod fs;
+pub mod keyboard;
 
 mod types;
 
-pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS, ENOENT};
+pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS, ENOENT, ENODATA};
 
 use core::arch::asm;
 use x86_64::structures::idt::InterruptStackFrame;
@@ -23,6 +24,7 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, _arg2: u64, _arg3: u64, _arg4: u
 		x if x == SyscallNumber::ConsoleWrite as u64 => console::write(arg0, arg1),
 		x if x == SyscallNumber::InitfsRead as u64 => fs::read(arg0, arg1, _arg2, _arg3),
 		x if x == SyscallNumber::Exit as u64 => task::exit(arg0),
+		x if x == SyscallNumber::KeyboardRead as u64 => keyboard::read_char(),
 		_ => ENOSYS,
 	}
 }

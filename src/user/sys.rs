@@ -20,7 +20,12 @@ pub enum SyscallNumber {
     InitfsRead = 6,
     /// 終了
     Exit = 7,
+    /// キーボード1文字読み取り
+    KeyboardRead = 8,
 }
+
+/// 入力が空
+pub const ENODATA: u64 = u64::MAX - 4;
 
 #[inline(always)]
 pub(crate) fn syscall0(num: u64) -> u64 {

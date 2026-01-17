@@ -5,33 +5,24 @@ use core::arch::asm;
 use core::panic::PanicInfo;
 
 const SYS_CONSOLE_WRITE: u64 = 5;
-const SYS_INITFS_READ: u64 = 6;
 const SYS_EXIT: u64 = 7;
+const SYS_KEYBOARD_READ: u64 = 8;
+const ENODATA: u64 = u64::MAX - 4;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    write_str("SwiftCore shell\n");
-    write_str("Type: (input not implemented yet)\n");
+    write_str("SwiftCore keyboard service\n");
 
-    let mut buf = [0u8; 128];
-    let read = syscall4(
-        SYS_INITFS_READ,
-        "/etc/motd".as_ptr() as u64,
-        "/etc/motd".len() as u64,
-        buf.as_mut_ptr() as u64,
-        buf.len() as u64,
-    );
-
-    if read > 0 && read <= buf.len() as u64 {
-        if let Ok(text) = core::str::from_utf8(&buf[..read as usize]) {
-            write_str(text);
-            write_str("\n");
-        }
-    }
-
-    let _ = syscall1(SYS_EXIT, 0);
     loop {
-        unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)); }
+        let ch = syscall0(SYS_KEYBOARD_READ);
+        if ch == ENODATA {
+            unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)); }
+            continue;
+        }
+
+        let byte = ch as u8;
+        let buf = [byte];
+        let _ = syscall2(SYS_CONSOLE_WRITE, buf.as_ptr() as u64, 1);
     }
 }
 
@@ -41,7 +32,7 @@ fn write_str(s: &str) {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    write_str("shell panic\n");
+    write_str("keyboard service panic\n");
     let _ = syscall1(SYS_EXIT, 1);
     loop {
         unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)); }
@@ -78,16 +69,12 @@ fn syscall2(num: u64, arg0: u64, arg1: u64) -> u64 {
 }
 
 #[inline(always)]
-fn syscall4(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
+fn syscall0(num: u64) -> u64 {
     let ret: u64;
     unsafe {
         asm!(
             "int 0x80",
             inlateout("rax") num => ret,
-            in("rdi") arg0,
-            in("rsi") arg1,
-            in("rdx") arg2,
-            in("r10") arg3,
             options(nostack, preserves_flags)
         );
     }
