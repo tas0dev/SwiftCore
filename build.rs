@@ -5,22 +5,23 @@ use std::process::Command;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let initfs_dir_core = manifest_dir.join("src/core/init/initfs");
-    let initfs_dir_legacy = manifest_dir.join("src/init/initfs");
-    let initfs_dir = if initfs_dir_core.is_dir() {
-        initfs_dir_core
-    } else {
-        initfs_dir_legacy
-    };
-
-    if !initfs_dir.is_dir() {
-        panic!("initfs directory not found at {:?}", initfs_dir);
-    }
-
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let image_path = out_dir.join("initfs.ext2");
+    let stage_dir = out_dir.join("initfs_stage");
 
-    emit_rerun_if_changed(&initfs_dir);
+    if stage_dir.exists() {
+        let _ = fs::remove_dir_all(&stage_dir);
+    }
+    fs::create_dir_all(&stage_dir).expect("failed to create initfs stage dir");
+
+    emit_rerun_if_changed(&manifest_dir.join("src/apps/shell"));
+
+    if let Some(shell_bin) = find_shell_bin(&manifest_dir) {
+        let dest = stage_dir.join("shell");
+        fs::copy(&shell_bin, &dest).expect("failed to copy shell binary into initfs");
+    } else {
+        println!("cargo:warning=initfs: shell binary not found; set SWIFTCORE_SHELL_BIN or build shell crate");
+    }
 
     let status = Command::new("mke2fs")
         .args([
@@ -34,7 +35,7 @@ fn main() {
             "initfs",
             "-d",
         ])
-        .arg(&initfs_dir)
+        .arg(&stage_dir)
         .arg(&image_path)
         .arg("4096")
         .status();
@@ -65,4 +66,22 @@ fn emit_rerun_if_changed(path: &Path) {
             }
         }
     }
+}
+
+fn find_shell_bin(manifest_dir: &Path) -> Option<PathBuf> {
+    if let Ok(path) = env::var("SWIFTCORE_SHELL_BIN") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let candidates = [
+        manifest_dir.join("target/x86_64-unknown-none/debug/shell"),
+        manifest_dir.join("target/x86_64-unknown-none/release/shell"),
+        manifest_dir.join("src/apps/shell/target/x86_64-unknown-none/debug/shell"),
+        manifest_dir.join("src/apps/shell/target/x86_64-unknown-none/release/shell"),
+    ];
+
+    candidates.into_iter().find(|p| p.is_file())
 }
