@@ -1,7 +1,7 @@
 //! カーネルエントリーポイント
 
 use crate::{init::{fs, kinit}, task, util, BootInfo, MemoryRegion, Result};
-use crate::{info, vprintln, sprintln};
+use crate::{debug, info, vprintln, sprintln};
 use crate::error::handle_kernel_error;
 use crate::error::{KernelError, ProcessError};
 
@@ -38,21 +38,6 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
 
 /// カーネルメイン処理
 fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]) -> Result<()> {
-    info!("Initializing kernel...");
-    info!("Memory map entries: {}", boot_info.memory_map_len);
-
-    vprintln!("Framebuffer: {:#x}", boot_info.framebuffer_addr);
-    vprintln!(
-        "Resolution: {}x{}",
-        boot_info.screen_width,
-        boot_info.screen_height
-    );
-
-    info!(
-        "Physical memory offset: {:#x}",
-        boot_info.physical_memory_offset
-    );
-
     let kernel_process = task::Process::new("swiftcore", task::PrivilegeLevel::Core, None, 0);
     let kernel_pid = kernel_process.id();
 
@@ -74,7 +59,12 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
     }
 
     task::start_scheduling();
-    
+
+    task::spawn_service("keyboard.service", "keyboard");
+    task::spawn_service("shell.service", "shell");
+
+    debug!("service launched.");
+
     #[allow(unreachable_code)]
     Ok(())
 }
