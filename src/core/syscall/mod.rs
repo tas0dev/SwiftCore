@@ -1,29 +1,23 @@
 //! システムコール
 
+pub mod ipc;
+pub mod task;
+pub mod time;
+
+mod types;
+
+pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS};
+
 use core::arch::asm;
 use x86_64::structures::idt::InterruptStackFrame;
 
-/// システムコール番号
-#[repr(u64)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SyscallNumber {
-	/// スケジューラへ譲る
-	Yield = 1,
-	/// タイマーティック数を取得
-	GetTicks = 2,
-}
-
-/// 未実装エラー
-pub const ENOSYS: u64 = u64::MAX;
-
 /// システムコールのディスパッチ
-pub fn dispatch(num: u64, _arg0: u64, _arg1: u64, _arg2: u64, _arg3: u64, _arg4: u64) -> u64 {
+pub fn dispatch(num: u64, arg0: u64, arg1: u64, _arg2: u64, _arg3: u64, _arg4: u64) -> u64 {
 	match num {
-		x if x == SyscallNumber::Yield as u64 => {
-			crate::task::yield_now();
-			0
-		}
-		x if x == SyscallNumber::GetTicks as u64 => crate::interrupt::timer::get_ticks(),
+		x if x == SyscallNumber::Yield as u64 => task::yield_now(),
+		x if x == SyscallNumber::GetTicks as u64 => time::get_ticks(),
+		x if x == SyscallNumber::IpcSend as u64 => ipc::send(arg0, arg1),
+		x if x == SyscallNumber::IpcRecv as u64 => ipc::recv(arg0),
 		_ => ENOSYS,
 	}
 }
