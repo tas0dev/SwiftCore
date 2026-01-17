@@ -1,7 +1,7 @@
 //! カーネルエントリーポイント
 
-use crate::{init::kinit, task, util, BootInfo, MemoryRegion, Result};
-use crate::{info, vprintln};
+use crate::{init::{fs, kinit}, task, util, BootInfo, MemoryRegion, Result};
+use crate::{info, vprintln, sprintln};
 use crate::error::handle_kernel_error;
 use crate::error::{KernelError, ProcessError};
 
@@ -60,7 +60,7 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
         return Err(KernelError::Process(ProcessError::MaxProcessesReached));
     }
 
-    let stack_addr = unsafe { KERNEL_THREAD_STACK.0.as_ptr() as u64 };
+    let stack_addr = unsafe { core::ptr::addr_of!(KERNEL_THREAD_STACK.0) as *const u8 as u64 };
     let kernel_thread = task::Thread::new(
         kernel_pid,
         "kernel-idle",
@@ -73,9 +73,16 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
         return Err(KernelError::Process(ProcessError::MaxProcessesReached));
     }
 
-    info!("Starting task scheduler...");
-    task::start_scheduling();
+    match fs::read("test.txt") {
+        Some(data) => match core::str::from_utf8(data) {
+            Ok(text) => sprintln!("{}", text),
+            Err(_) => sprintln!("test.txt: {} bytes", data.len()),
+        },
+        None => sprintln!("test.txt: not found"),
+    }
 
+    task::start_scheduling();
+    
     #[allow(unreachable_code)]
     Ok(())
 }
