@@ -172,6 +172,30 @@ impl fmt::Display for MemoryError {
     }
 }
 
+/// カーネルエラーを処理
+pub fn handle_kernel_error(error: KernelError) {
+    crate::warn!("KERNEL ERROR: {}", error);
+    crate::debug!("Is fatal: {}", error.is_fatal());
+    crate::debug!("Is retryable: {}", error.is_retryable());
+
+    match error {
+        KernelError::Memory(mem_err) => {
+            crate::error!("Memory error: {:?}", mem_err);
+        }
+        KernelError::Process(proc_err) => {
+            crate::error!("Process error: {:?}", proc_err);
+        }
+        KernelError::Device(dev_err) => {
+            crate::error!("Device error: {:?}", dev_err);
+        }
+        _ => {
+            crate::error!("Unknown error: {:?}", error);
+        }
+    }
+
+    crate::info!("System halted.");
+}
+
 /// 結果型のエイリアス
 pub type Result<T> = core::result::Result<T, KernelError>;
 
