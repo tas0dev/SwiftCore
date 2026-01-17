@@ -25,6 +25,9 @@ pub mod task;
 /// システムコール
 pub mod syscall;
 
+/// 起動時初期化
+pub mod init;
+
 /// ユーティリティモジュール
 pub mod util;
 
