@@ -152,6 +152,7 @@ impl fmt::Display for KernelError {
             KernelError::Device(e) => write!(f, "Device error: {:?}", e),
             KernelError::InvalidParam => write!(f, "Invalid parameter"),
             KernelError::NotImplemented => write!(f, "Not implemented"),
+            KernelError::UnknownError => write!(f, "Unknown error"),
         }
     }
 }
@@ -166,6 +167,7 @@ impl fmt::Display for MemoryError {
             MemoryError::AlreadyMapped => write!(f, "Already mapped"),
             MemoryError::NotMapped => write!(f, "Not mapped"),
             MemoryError::AlignmentError => write!(f, "Alignment error"),
+            MemoryError::UnknownError => write!(f, "Unknown error"),
         }
     }
 }

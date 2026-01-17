@@ -16,8 +16,8 @@ pub use process::{
 };
 pub use scheduler::{
 	block_current_thread, disable_scheduler, enable_scheduler, init_scheduler, is_scheduler_enabled,
-	schedule, schedule_and_switch, scheduler_tick, sleep_thread, start_scheduling, terminate_thread,
-	wake_thread, yield_now, Scheduler,
+	schedule, schedule_and_switch, scheduler_tick, set_time_slice, sleep_thread, start_scheduling,
+	terminate_thread, wake_thread, yield_now, Scheduler,
 };
 pub use thread::{
 	add_thread, count_threads_by_state, current_thread_id, for_each_thread, peek_next_thread,
