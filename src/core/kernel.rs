@@ -8,9 +8,10 @@ use crate::{
 /// カーネルエントリーポイント
 #[no_mangle]
 pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
-    util::console::init();
 
-    // フレームバッファ初期化
+    LogLevel = Info;
+
+    util::console::init();
     util::vga::init(
         boot_info.framebuffer_addr,
         boot_info.screen_width,
@@ -18,21 +19,6 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
         boot_info.stride,
     );
 
-    vprintln!("SwiftCore v0.1.0");
-    vprintln!("Framebuffer: {:#x}", boot_info.framebuffer_addr);
-    vprintln!(
-        "Resolution: {}x{}",
-        boot_info.screen_width,
-        boot_info.screen_height
-    );
-    vprintln!("");
-
-    info!(
-        "Physical memory offset: {:#x}",
-        boot_info.physical_memory_offset
-    );
-
-    // メモリマップを取得
     let memory_map = unsafe {
         core::slice::from_raw_parts(
             boot_info.memory_map_addr as *const MemoryRegion,
@@ -40,7 +26,6 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
         )
     };
 
-    info!("Memory map entries: {}", boot_info.memory_map_len);
     for (i, region) in memory_map.iter().enumerate() {
         debug!(
             "  Region {}: {:#x} - {:#x} ({:?})",
@@ -51,15 +36,12 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
         );
     }
 
-    // カーネル初期化を実行
     match kernel_main(boot_info, memory_map) {
         Ok(_) => {
-            // 正常に完了（通常は到達しない）
             info!("Kernel shutdown gracefully");
             halt_forever();
         }
         Err(e) => {
-            // エラー時の処理
             handle_kernel_error(e);
             halt_forever();
         }
@@ -69,6 +51,19 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
 /// カーネルメイン処理
 fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]) -> Result<()> {
     info!("Initializing kernel...");
+    info!("Memory map entries: {}", boot_info.memory_map_len);
+
+    vprintln!("Framebuffer: {:#x}", boot_info.framebuffer_addr);
+    vprintln!(
+        "Resolution: {}x{}",
+        boot_info.screen_width,
+        boot_info.screen_height
+    );
+    
+    info!(
+        "Physical memory offset: {:#x}",
+        boot_info.physical_memory_offset
+    );
 
     // メモリ管理初期化
     mem::init(boot_info.physical_memory_offset);
@@ -178,9 +173,6 @@ fn task_a_entry() -> ! {
         sprintln!("Hello from Task A ({})", counter);
         counter += 1;
 
-        // 他のタスクに譲る
-        task::yield_now();
-
         // 少し待機
         for _ in 0..100_000 {
             core::hint::spin_loop();
@@ -195,9 +187,6 @@ fn task_b_entry() -> ! {
         vprintln!("Hello from Task B ({})", counter);
         sprintln!("Hello from Task B ({})", counter);
         counter += 1;
-
-        // 他のタスクに譲る
-        task::yield_now();
 
         // 少し待機
         for _ in 0..100_000 {
