@@ -58,12 +58,16 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
         return Err(KernelError::Process(ProcessError::MaxProcessesReached));
     }
 
+    if let Err(e) = task::spawn_service("keyboard.service", "keyboard") {
+        return Err(e);
+    }
+    if let Err(e) = task::spawn_service("shell.service", "shell") {
+        return Err(e);
+    }
+
+    info!("service launched.");
+
     task::start_scheduling();
-
-    task::spawn_service("keyboard.service", "keyboard");
-    task::spawn_service("shell.service", "shell");
-
-    debug!("service launched.");
 
     #[allow(unreachable_code)]
     Ok(())
