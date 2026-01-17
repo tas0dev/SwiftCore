@@ -14,17 +14,11 @@ fn main() {
     }
     fs::create_dir_all(&stage_dir).expect("failed to create initfs stage dir");
 
-    emit_rerun_if_changed(&manifest_dir.join("src/apps/shell"));
+    emit_rerun_if_changed(&manifest_dir.join("src/services/shell"));
+    emit_rerun_if_changed(&manifest_dir.join("src/services/keyboard"));
 
-    let shell_bin = find_shell_bin(&manifest_dir)
-        .or_else(|| build_shell(&manifest_dir));
-
-    if let Some(shell_bin) = shell_bin {
-        let dest = stage_dir.join("shell");
-        fs::copy(&shell_bin, &dest).expect("failed to copy shell binary into initfs");
-    } else {
-        println!("cargo:warning=initfs: shell binary not found; set SWIFTCORE_SHELL_BIN or build shell crate");
-    }
+    copy_service(&manifest_dir, "shell", &stage_dir);
+    copy_service(&manifest_dir, "keyboard", &stage_dir);
 
     let status = Command::new("mke2fs")
         .args([
@@ -71,14 +65,7 @@ fn emit_rerun_if_changed(path: &Path) {
     }
 }
 
-fn find_shell_bin(manifest_dir: &Path) -> Option<PathBuf> {
-    if let Ok(path) = env::var("SWIFTCORE_SHELL_BIN") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-
+fn find_service_bin(manifest_dir: &Path, name: &str) -> Option<PathBuf> {
     let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
     let profile_dir = if profile == "release" { "release" } else { "debug" };
 
@@ -87,7 +74,7 @@ fn find_shell_bin(manifest_dir: &Path) -> Option<PathBuf> {
         let candidate = target_dir
             .join("x86_64-unknown-none")
             .join(profile_dir)
-            .join("shell");
+            .join(name);
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -97,29 +84,31 @@ fn find_shell_bin(manifest_dir: &Path) -> Option<PathBuf> {
         manifest_dir
             .join("target/x86_64-unknown-none")
             .join(profile_dir)
-            .join("shell"),
+            .join(name),
         manifest_dir
-            .join("src/apps/shell/target/x86_64-unknown-none")
+            .join("src/services")
+            .join(name)
+            .join("target/x86_64-unknown-none")
             .join(profile_dir)
-            .join("shell"),
+            .join(name),
     ];
 
     candidates.into_iter().find(|p| p.is_file())
 }
 
-fn build_shell(manifest_dir: &Path) -> Option<PathBuf> {
+fn build_service(manifest_dir: &Path, name: &str) -> Option<PathBuf> {
     if env::var("SWIFTCORE_SKIP_SHELL_BUILD").ok().as_deref() == Some("1") {
         return None;
     }
 
-    let shell_dir = manifest_dir.join("src/apps/shell");
-    if !shell_dir.is_dir() {
+    let svc_dir = manifest_dir.join("src/services").join(name);
+    if !svc_dir.is_dir() {
         return None;
     }
 
     let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
     let mut cmd = Command::new("cargo");
-    cmd.current_dir(&shell_dir)
+    cmd.current_dir(&svc_dir)
         .env("SWIFTCORE_SKIP_SHELL_BUILD", "1")
         .args(["build", "--target", "x86_64-unknown-none"]);
 
@@ -131,8 +120,35 @@ fn build_shell(manifest_dir: &Path) -> Option<PathBuf> {
         .status();
 
     match status {
-        Ok(s) if s.success() => find_shell_bin(manifest_dir),
+        Ok(s) if s.success() => find_service_bin(manifest_dir, name),
         Ok(_) => None,
         Err(_) => None,
+    }
+}
+
+fn copy_service(manifest_dir: &Path, name: &str, stage_dir: &Path) {
+    let env_key = match name {
+        "shell" => "SWIFTCORE_SHELL_BIN",
+        "keyboard" => "SWIFTCORE_KEYBOARD_BIN",
+        _ => "SWIFTCORE_SERVICE_BIN",
+    };
+
+    let env_bin = env::var(env_key).ok().and_then(|p| {
+        let path = PathBuf::from(p);
+        if path.is_file() { Some(path) } else { None }
+    });
+
+    let bin = env_bin
+        .or_else(|| find_service_bin(manifest_dir, name))
+        .or_else(|| build_service(manifest_dir, name));
+
+    if let Some(bin) = bin {
+        let dest = stage_dir.join(name);
+        let _ = fs::copy(&bin, &dest);
+    } else {
+        println!(
+            "cargo:warning=initfs: {} binary not found; set {} or build service crate",
+            name, env_key
+        );
     }
 }

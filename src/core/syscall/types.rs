@@ -16,6 +16,8 @@ pub enum SyscallNumber {
 	InitfsRead = 6,
 	/// 現在のスレッドを終了 (arg0=exit_code)
 	Exit = 7,
+	/// キーボード1文字読み取り
+	KeyboardRead = 8,
 }
 
 /// 未実装エラー
@@ -26,3 +28,5 @@ pub const EINVAL: u64 = u64::MAX - 1;
 pub const EAGAIN: u64 = u64::MAX - 2;
 /// ファイル/エントリが見つからない
 pub const ENOENT: u64 = u64::MAX - 3;
+/// 入力が空
+pub const ENODATA: u64 = u64::MAX - 4;
