@@ -286,20 +286,19 @@ impl Thread {
         let mut context = Context::new();
 
         // スタックポインタをスタックの最後に設定（スタックは下に伸びる）
-        let stack_top = kernel_stack + kernel_stack_size as u64;
+        // 16バイト境界に合わせる
+        let stack_top = (kernel_stack + kernel_stack_size as u64) & !0xF;
 
-        // スタック上にダミーリターンアドレスを配置
-        let stack_ptr = stack_top - 16;
+        // 呼び出し規約に合わせて、戻り先アドレス用のスロットを確保
+        let stack_ptr = stack_top - 8;
 
         unsafe {
-            let stack_addr = stack_ptr as *mut u64;
-            // thread_exit_handlerアドレスをスタック上に配置
-            let entry_addr = stack_ptr as *mut u64;
-            *entry_addr = entry_point as u64;
-            *entry_addr.add(1) = thread_exit_handler as u64;
+            // 戻り先として thread_exit_handler を配置
+            let ret_addr = stack_ptr as *mut u64;
+            *ret_addr = thread_exit_handler as u64;
         }
 
-        // rscanにはダミーリターンアドレスを含んだ位置を設定
+        // rsp は「戻り先アドレスが置かれている位置」を指す
         context.rsp = stack_ptr;
         context.rbp = stack_top;
 
@@ -1021,32 +1020,35 @@ pub unsafe extern "C" fn switch_context(old_context: *mut Context, new_context: 
         // コンテキストスイッチ中の割り込みを禁止
         "cli",
         // 現在のコンテキストを保存
-        "mov [rdi + 0x00], rsp", // rsp
-        "mov [rdi + 0x08], rbp", // rbp
-        "mov [rdi + 0x10], rbx", // rbx
-        "mov [rdi + 0x18], r12", // r12
-        "mov [rdi + 0x20], r13", // r13
-        "mov [rdi + 0x28], r14", // r14
-        "mov [rdi + 0x30], r15", // r15
+        // 呼び出し元に戻った後の rsp を保存（ret 相当）
+        "lea rax, [rsp + 0x08]",
+        // UEFI (x86_64-unknown-uefi) は Microsoft x64 ABI: rcx, rdx が引数
+        "mov [rcx + 0x00], rax", // rsp
+        "mov [rcx + 0x08], rbp", // rbp
+        "mov [rcx + 0x10], rbx", // rbx
+        "mov [rcx + 0x18], r12", // r12
+        "mov [rcx + 0x20], r13", // r13
+        "mov [rcx + 0x28], r14", // r14
+        "mov [rcx + 0x30], r15", // r15
         // 戻り先アドレス（call命令でスタックにpushされている）を保存
         "mov rax, [rsp]",
-        "mov [rdi + 0x38], rax", // rip
+        "mov [rcx + 0x38], rax", // rip
         // RFLAGSを保存
         "pushfq",
         "pop rax",
-        "mov [rdi + 0x40], rax", // rflags
+        "mov [rcx + 0x40], rax", // rflags
         // 新しいコンテキストを復元
-        "mov rax, [rsi + 0x38]", // 新しいrip
-        "mov rcx, [rsi + 0x40]", // 新しいrflags
-        "mov rbx, [rsi + 0x10]", // rbx
-        "mov r12, [rsi + 0x18]", // r12
-        "mov r13, [rsi + 0x20]", // r13
-        "mov r14, [rsi + 0x28]", // r14
-        "mov r15, [rsi + 0x30]", // r15
-        "mov rbp, [rsi + 0x08]", // rbp
-        "mov rsp, [rsi + 0x00]", // rsp
+        "mov rax, [rdx + 0x38]", // 新しいrip
+        "mov r11, [rdx + 0x40]", // 新しいrflags
+        "mov rbx, [rdx + 0x10]", // rbx
+        "mov r12, [rdx + 0x18]", // r12
+        "mov r13, [rdx + 0x20]", // r13
+        "mov r14, [rdx + 0x28]", // r14
+        "mov r15, [rdx + 0x30]", // r15
+        "mov rbp, [rdx + 0x08]", // rbp
+        "mov rsp, [rdx + 0x00]", // rsp
         // RFLAGSを復元
-        "push rcx",
+        "push r11",
         "popfq",
         // 新しいripへジャンプ
         "jmp rax"
