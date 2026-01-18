@@ -7,12 +7,6 @@ use crate::{interrupt, mem, task, util, BootInfo, KernelError, MemoryRegion, Res
 pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
     util::log::set_level(util::log::LogLevel::Info);
     util::console::init();
-    util::vga::init(
-        boot_info.framebuffer_addr,
-        boot_info.screen_width,
-        boot_info.screen_height,
-        boot_info.stride,
-    );
 
     let memory_map = unsafe {
         core::slice::from_raw_parts(
@@ -30,6 +24,34 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
             region.region_type
         );
     }
+
+    // メモリ管理初期化
+    mem::init(boot_info.physical_memory_offset);
+    if let Err(e) = mem::init_frame_allocator(memory_map) {
+        handle_kernel_error(e);
+        halt_forever();
+    }
+
+    // フレームバッファを仮想メモリにマップ
+    let fb_flags = x86_64::structures::paging::PageTableFlags::PRESENT
+        | x86_64::structures::paging::PageTableFlags::WRITABLE;
+    if let Err(e) = mem::paging::map_region(
+        boot_info.framebuffer_addr,
+        boot_info.framebuffer_size,
+        boot_info.physical_memory_offset,
+        fb_flags,
+    ) {
+        handle_kernel_error(e);
+        halt_forever();
+    }
+
+    let fb_addr = boot_info.framebuffer_addr + boot_info.physical_memory_offset;
+    util::vga::init(
+        fb_addr,
+        boot_info.screen_width,
+        boot_info.screen_height,
+        boot_info.stride,
+    );
 
     match kernel_main(boot_info, memory_map) {
         Ok(_) => {
@@ -54,15 +76,13 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
         boot_info.screen_width,
         boot_info.screen_height
     );
+    crate::vprintln!("ASCII test: Hello, SwiftCore!");
+    crate::vprintln!("日本語テスト: こんにちは世界");
 
     crate::info!(
         "Physical memory offset: {:#x}",
         boot_info.physical_memory_offset
     );
-
-    // メモリ管理初期化
-    mem::init(boot_info.physical_memory_offset);
-    mem::init_frame_allocator(memory_map)?;
 
     crate::info!("Kernel ready");
 

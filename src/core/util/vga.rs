@@ -16,168 +16,43 @@ struct FramebufferInfo {
 
 /// フォントの最大グリフ数（BMP）
 const GLYPH_COUNT: usize = 0x10000;
+const GLYPH_ROWS: usize = 16;
+const GLYPH_RECORD_SIZE: usize = 2 + GLYPH_ROWS * 2;
+const FONT_HEADER_SIZE: usize = 2;
 
-/// フォント
-static FONT: Once<Font> = Once::new();
+/// フォント（ビルド時生成バイナリ）
+static FONT: Once<FontData> = Once::new();
 
-#[derive(Clone, Copy)]
-struct Glyph {
-    width: u8,
-    height: u8,
-    bitmap: [u16; 16],
-}
-
-impl Glyph {
-    const fn empty() -> Self {
-        Self {
-            width: 0,
-            height: 0,
-            bitmap: [0; 16],
-        }
-    }
-}
-
-struct Font {
+struct FontData {
     width: usize,
     height: usize,
-    glyphs: [Glyph; GLYPH_COUNT],
+    data: &'static [u8],
 }
 
-impl Font {
-    const fn empty() -> Self {
-        Self {
-            width: 8,
-            height: 16,
-            glyphs: [Glyph::empty(); GLYPH_COUNT],
-        }
-    }
-
-    fn glyph(&self, codepoint: u32) -> &Glyph {
-        let idx = codepoint as usize;
-        if idx < GLYPH_COUNT {
-            &self.glyphs[idx]
-        } else {
-            &self.glyphs[0]
-        }
+fn init_font() -> FontData {
+    let data: &'static [u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/unifont.bin"));
+    let width = data.get(0).copied().unwrap_or(8) as usize;
+    let height = data.get(1).copied().unwrap_or(16) as usize;
+    FontData {
+        width,
+        height,
+        data,
     }
 }
 
-fn parse_hex_u16(s: &str) -> u16 {
-    let mut value: u16 = 0;
-    for b in s.bytes() {
-        value = value.saturating_mul(16);
-        value = value.saturating_add(match b {
-            b'0'..=b'9' => (b - b'0') as u16,
-            b'a'..=b'f' => (b - b'a' + 10) as u16,
-            b'A'..=b'F' => (b - b'A' + 10) as u16,
-            _ => 0,
-        });
+fn glyph_record<'a>(font: &'a FontData, codepoint: u32) -> Option<&'a [u8]> {
+    let idx = codepoint as usize;
+    if idx >= GLYPH_COUNT {
+        return None;
     }
-    value
-}
-
-fn parse_font() -> Font {
-    let mut font = Font::empty();
-    let data = include_bytes!("../unifont_jp-17.0.03.bdf");
-    let text = match core::str::from_utf8(data) {
-        Ok(t) => t,
-        Err(_) => return font,
-    };
-
-    let mut in_glyph = false;
-    let mut in_bitmap = false;
-    let mut encoding: i32 = -1;
-    let mut width: usize = 0;
-    let mut height: usize = 0;
-    let mut row: usize = 0;
-
-    for line in text.lines() {
-        if line.starts_with("FONTBOUNDINGBOX ") {
-            let mut parts = line.split_whitespace();
-            let _ = parts.next();
-            if let (Some(w), Some(h)) = (parts.next(), parts.next()) {
-                if let (Ok(w), Ok(h)) = (w.parse::<usize>(), h.parse::<usize>()) {
-                    if w > 0 && h > 0 {
-                        font.width = w.min(16);
-                        font.height = h.min(16);
-                    }
-                }
-            }
-            continue;
-        }
-
-        if line.starts_with("STARTCHAR") {
-            in_glyph = true;
-            in_bitmap = false;
-            encoding = -1;
-            width = 0;
-            height = 0;
-            row = 0;
-            continue;
-        }
-
-        if line.starts_with("ENDCHAR") {
-            if encoding >= 0 && (encoding as usize) < GLYPH_COUNT {
-                let glyph = &mut font.glyphs[encoding as usize];
-                if width > 0 {
-                    glyph.width = width.min(16) as u8;
-                }
-                if height > 0 {
-                    glyph.height = height.min(16) as u8;
-                }
-            }
-            in_glyph = false;
-            in_bitmap = false;
-            continue;
-        }
-
-        if !in_glyph {
-            continue;
-        }
-
-        if line.starts_with("ENCODING ") {
-            let mut parts = line.split_whitespace();
-            let _ = parts.next();
-            if let Some(enc) = parts.next() {
-                if let Ok(v) = enc.parse::<i32>() {
-                    encoding = v;
-                }
-            }
-            continue;
-        }
-
-        if line.starts_with("BBX ") {
-            let mut parts = line.split_whitespace();
-            let _ = parts.next();
-            if let (Some(w), Some(h)) = (parts.next(), parts.next()) {
-                if let (Ok(w), Ok(h)) = (w.parse::<usize>(), h.parse::<usize>()) {
-                    width = w;
-                    height = h;
-                }
-            }
-            continue;
-        }
-
-        if line == "BITMAP" {
-            in_bitmap = true;
-            row = 0;
-            continue;
-        }
-
-        if in_bitmap {
-            if encoding >= 0 && (encoding as usize) < GLYPH_COUNT && row < 16 {
-                let mut value = parse_hex_u16(line);
-                let w = width.min(16);
-                if w > 0 && w < 16 {
-                    value = value << (16 - w);
-                }
-                font.glyphs[encoding as usize].bitmap[row] = value;
-            }
-            row += 1;
-        }
+    let base = FONT_HEADER_SIZE + idx * GLYPH_RECORD_SIZE;
+    let end = base + GLYPH_RECORD_SIZE;
+    if end <= font.data.len() {
+        Some(&font.data[base..end])
+    } else {
+        None
     }
-
-    font
 }
 
 /// フレームバッファライター
@@ -226,22 +101,39 @@ impl Writer {
             None => return,
         };
 
-        let glyph = font.glyph(codepoint);
-        let glyph_w = if glyph.width == 0 {
-            font.width
-        } else {
-            glyph.width as usize
+        let record = match glyph_record(font, codepoint) {
+            Some(record) => record,
+            None => return,
         };
-        let glyph_h = if glyph.height == 0 {
-            font.height
-        } else {
-            glyph.height as usize
+
+        let bitmap_empty = record
+            .get(2..)
+            .map(|bytes| bytes.iter().all(|&b| b == 0))
+            .unwrap_or(true);
+
+        let glyph_w = match record.get(0).copied().unwrap_or(0) {
+            0 => font.width,
+            w => w as usize,
+        };
+        let glyph_h = match record.get(1).copied().unwrap_or(0) {
+            0 => font.height,
+            h => h as usize,
         };
 
         for row in 0..self.font_height {
             for col in 0..self.font_width {
-                let is_set = if row < glyph_h && col < glyph_w {
-                    let bits = glyph.bitmap[row];
+                let is_set = if bitmap_empty {
+                    let is_printable = (0x20..=0x7e).contains(&codepoint);
+                    is_printable
+                        && (row == 0
+                            || row + 1 == self.font_height
+                            || col == 0
+                            || col + 1 == self.font_width)
+                } else if row < glyph_h && col < glyph_w {
+                    let offset = 2 + row * 2;
+                    let lo = record.get(offset).copied().unwrap_or(0);
+                    let hi = record.get(offset + 1).copied().unwrap_or(0);
+                    let bits = u16::from_le_bytes([lo, hi]);
                     let mask = 1u16 << (15 - col);
                     (bits & mask) != 0
                 } else {
@@ -249,6 +141,15 @@ impl Writer {
                 };
                 let color = if is_set { fg } else { bg };
                 self.put_pixel(x + col, y + row, color);
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn draw_test_pattern(&self) {
+        for y in 0..8 {
+            for x in 0..8 {
+                self.put_pixel(x, y, 0x00FF00); // 緑
             }
         }
     }
@@ -324,7 +225,7 @@ pub fn init(addr: u64, width: usize, height: usize, stride: usize) {
         stride,
     });
 
-    FONT.call_once(parse_font);
+    FONT.call_once(init_font);
 
     if let Some(info) = FB_INFO.get() {
         let (font_w, font_h) = FONT
@@ -336,6 +237,8 @@ pub fn init(addr: u64, width: usize, height: usize, stride: usize) {
         // 画面をクリア
         if let Some(writer) = WRITER.get() {
             writer.lock().clear_screen();
+            #[cfg(debug_assertions)]
+            writer.lock().draw_test_pattern();
         }
     }
 }

@@ -7,9 +7,9 @@ use crate::sprintln;
 use spin::Mutex;
 use x86_64::{
     structures::paging::{
-        Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
+        Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags, PhysFrame, Size4KiB,
     },
-    VirtAddr,
+    PhysAddr, VirtAddr,
 };
 
 static PAGE_TABLE: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
@@ -69,4 +69,28 @@ pub fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
     page_table.as_ref()?.translate_addr(addr)
 }
 
-pub use x86_64::PhysAddr;
+/// 物理メモリ領域を仮想アドレスへマップ
+pub fn map_region(
+    phys_start: u64,
+    size: usize,
+    virt_offset: u64,
+    flags: PageTableFlags,
+) -> Result<()> {
+    let start = PhysAddr::new(phys_start);
+    let end = PhysAddr::new(phys_start + size as u64);
+
+    let mut current = start;
+    while current < end {
+        let phys_frame = PhysFrame::containing_address(current);
+        let virt_addr = VirtAddr::new(current.as_u64() + virt_offset);
+
+        if translate_addr(virt_addr).is_none() {
+            let page = Page::<Size4KiB>::containing_address(virt_addr);
+            map_page(page, phys_frame, flags)?;
+        }
+
+        current = PhysAddr::new(current.as_u64() + Size4KiB::SIZE);
+    }
+
+    Ok(())
+}
