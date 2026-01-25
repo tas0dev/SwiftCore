@@ -173,11 +173,84 @@ pub fn spawn_service(path: &str, name: &'static str) -> Result<()> {
     // Create thread with kernel stack, then set its context.rsp to the user stack
     let mut thread = Thread::new(pid, name, entry_fn, kernel_stack_addr, pages * page_size);
 
-    // Set user stack pointer in thread context (stack grows down). Reserve return slot.
-    let user_stack_top = loaded.stack_top & !0xF;
-    let user_stack_ptr = (user_stack_top - 8) as u64;
-    thread.context_mut().rsp = user_stack_ptr;
-    thread.context_mut().rbp = user_stack_top;
+    // Build initial user stack: argc/argv/envp/auxv and strings
+    // We'll place strings at lower addresses and pointers/auxv above them.
+    let mut sp = loaded.stack_top;
+
+    // argv[0] = path
+    let argv0 = path.as_bytes();
+    // store argv0 string
+    sp = sp.saturating_sub((argv0.len() + 1) as u64);
+    unsafe {
+        let dst = sp as *mut u8;
+        core::ptr::copy_nonoverlapping(argv0.as_ptr(), dst, argv0.len());
+        *dst.add(argv0.len()) = 0;
+    }
+    let argv0_addr = sp;
+
+    // Align stack to 16 bytes
+    sp &= !0xF;
+
+    // auxv entries: (key, val) pairs
+    const AT_NULL: u64 = 0;
+    const AT_PHDR: u64 = 3;
+    const AT_PHENT: u64 = 4;
+    const AT_PHNUM: u64 = 5;
+    const AT_PAGESZ: u64 = 6;
+    const AT_ENTRY: u64 = 9;
+
+    // Fetch ELF header again to compute phdr addr and counts
+    let header = parse_header(data)?;
+    let load_bias = if header.e_type == ET_DYN { PIE_LOAD_BIAS } else { 0 };
+    let at_phdr = load_bias.wrapping_add(header.e_phoff);
+    let at_phent = header.e_phentsize as u64;
+    let at_phnum = header.e_phnum as u64;
+
+    // push auxv (key,val) ... AT_NULL
+    let mut push_u64 = |val: u64| {
+        sp = sp.saturating_sub(8);
+        unsafe { *(sp as *mut u64) = val; }
+    };
+
+    // AT_NULL
+    push_u64(0);
+    push_u64(AT_NULL);
+
+    // AT_ENTRY
+    push_u64(loaded.entry);
+    push_u64(AT_ENTRY);
+
+    // AT_PAGESZ
+    push_u64(4096);
+    push_u64(AT_PAGESZ);
+
+    // AT_PHNUM
+    push_u64(at_phnum);
+    push_u64(AT_PHNUM);
+
+    // AT_PHENT
+    push_u64(at_phent);
+    push_u64(AT_PHENT);
+
+    // AT_PHDR
+    push_u64(at_phdr);
+    push_u64(AT_PHDR);
+
+    // envp NULL terminator (no env)
+    push_u64(0);
+
+    // argv pointers (argv[0], NULL)
+    push_u64(0); // argv NULL
+    push_u64(argv0_addr);
+
+    // argc
+    push_u64(1);
+
+    // final alignment: ensure %16 == 0
+    sp &= !0xF;
+
+    thread.context_mut().rsp = sp as u64;
+    thread.context_mut().rbp = 0;
 
     if add_thread(thread).is_none() {
         return Err(KernelError::Process(ProcessError::MaxProcessesReached));

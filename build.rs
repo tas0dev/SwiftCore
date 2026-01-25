@@ -14,11 +14,11 @@ fn main() {
     }
     fs::create_dir_all(&stage_dir).expect("failed to create initfs stage dir");
 
-    emit_rerun_if_changed(&manifest_dir.join("src/services/shell"));
-    emit_rerun_if_changed(&manifest_dir.join("src/services/keyboard"));
+    //emit_rerun_if_changed(&manifest_dir.join("src/services/shell"));
+    //emit_rerun_if_changed(&manifest_dir.join("src/services/keyboard"));
 
-    copy_service(&manifest_dir, "shell", &stage_dir);
-    copy_service(&manifest_dir, "keyboard", &stage_dir);
+    //copy_service(&manifest_dir, "shell", &stage_dir);
+    //copy_service(&manifest_dir, "keyboard", &stage_dir);
 
     let status = Command::new("mke2fs")
         .args([
@@ -49,7 +49,7 @@ fn main() {
         }
     }
 }
-
+/*
 fn emit_rerun_if_changed(path: &Path) {
     if let Ok(metadata) = fs::metadata(path) {
         if metadata.is_file() {
@@ -152,3 +152,4 @@ fn copy_service(manifest_dir: &Path, name: &str, stage_dir: &Path) {
         );
     }
 }
+*/
