@@ -5,7 +5,7 @@ use std::process::Command;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let initfs_dir_core = manifest_dir.join("src/core/init/initfs");
+    let initfs_dir_core = manifest_dir.join("src/initfs");
     let initfs_dir_legacy = manifest_dir.join("src/init/initfs");
     let initfs_dir = if initfs_dir_core.is_dir() {
         initfs_dir_core
