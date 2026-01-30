@@ -85,7 +85,7 @@ pub enum ServiceError {
     /// 未登録のサービス
     Unregistered,
     /// 未知のエラー
-    UnknownError
+    UnknownError,
 }
 
 /// デバイス関連のエラー

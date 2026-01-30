@@ -23,17 +23,7 @@ fn main() {
     emit_rerun_if_changed(&initfs_dir);
 
     let status = Command::new("mke2fs")
-        .args([
-            "-t",
-            "ext2",
-            "-b",
-            "4096",
-            "-m",
-            "0",
-            "-L",
-            "initfs",
-            "-d",
-        ])
+        .args(["-t", "ext2", "-b", "4096", "-m", "0", "-L", "initfs", "-d"])
         .arg(&initfs_dir)
         .arg(&image_path)
         .arg("4096")
@@ -45,9 +35,7 @@ fn main() {
             panic!("mke2fs failed while generating initfs.ext2");
         }
         Err(e) => {
-            panic!(
-                "failed to execute mke2fs: {e}. Please install e2fsprogs (mke2fs)."
-            );
+            panic!("failed to execute mke2fs: {e}. Please install e2fsprogs (mke2fs).");
         }
     }
 }

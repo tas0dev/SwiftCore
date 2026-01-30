@@ -2,14 +2,14 @@
 #[repr(u64)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyscallNumber {
-	/// スケジューラへ譲る
-	Yield = 1,
-	/// タイマーティック数を取得
-	GetTicks = 2,
-	/// IPC送信 (arg0=dest_thread_id, arg1=value)
-	IpcSend = 3,
-	/// IPC受信 (arg0=sender_ptr)
-	IpcRecv = 4,
+    /// スケジューラへ譲る
+    Yield = 1,
+    /// タイマーティック数を取得
+    GetTicks = 2,
+    /// IPC送信 (arg0=dest_thread_id, arg1=value)
+    IpcSend = 3,
+    /// IPC受信 (arg0=sender_ptr)
+    IpcRecv = 4,
 }
 
 /// 未実装エラー

@@ -1,8 +1,6 @@
 //! 起動時に実行する初期化処理をまとめたモジュール
 
-use crate::{
-    debug, interrupt, mem, task, util, BootInfo, MemoryRegion, Result,
-};
+use crate::{debug, interrupt, mem, task, util, BootInfo, MemoryRegion, Result};
 
 pub mod fs;
 
