@@ -1,9 +1,9 @@
 //! カーネルエントリーポイント
 
-use crate::{init::kinit, task, util, BootInfo, MemoryRegion, Result};
-use crate::{info, vprintln};
 use crate::error::handle_kernel_error;
 use crate::error::{KernelError, ProcessError};
+use crate::{info, vprintln};
+use crate::{init::kinit, task, util, BootInfo, MemoryRegion, Result};
 
 const KERNEL_THREAD_STACK_SIZE: usize = 4096 * 8;
 
@@ -60,7 +60,8 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
         return Err(KernelError::Process(ProcessError::MaxProcessesReached));
     }
 
-    let stack_addr = unsafe { KERNEL_THREAD_STACK.0.as_ptr() as u64 };
+    let stack_addr =
+        unsafe { (&raw const KERNEL_THREAD_STACK as *const KernelStack as *const u8) as u64 };
     let kernel_thread = task::Thread::new(
         kernel_pid,
         "kernel-idle",

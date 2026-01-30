@@ -2,7 +2,10 @@
 //!
 //! 4KBページ単位で物理メモリを管理
 
-use crate::{MemoryRegion, MemoryType, error::{KernelError, MemoryError, Result}};
+use crate::{
+    error::{KernelError, MemoryError, Result},
+    MemoryRegion, MemoryType,
+};
 use spin::Mutex;
 use x86_64::{
     structures::paging::{FrameAllocator, PhysFrame, Size4KiB},
