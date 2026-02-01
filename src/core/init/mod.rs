@@ -32,8 +32,11 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
 
     task::init_scheduler();
 
-    mem::init(boot_info.physical_memory_offset);
+    // 先にフレームアロケータを初期化
     mem::init_frame_allocator(memory_map)?;
+
+    // メモリ管理の初期化
+    mem::init(boot_info);
 
     fs::init();
 

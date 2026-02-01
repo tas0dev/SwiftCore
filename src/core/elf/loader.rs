@@ -1,7 +1,7 @@
 extern crate alloc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use crate::error::{KernelError, ProcessError};
+use crate::result::{Kernel, Process};
 
 /// ELF64ヘッダとプログラムヘッダの定義
 #[repr(C)]

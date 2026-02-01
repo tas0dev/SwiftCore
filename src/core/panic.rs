@@ -3,7 +3,7 @@
 //! カーネルパニック時の処理
 //! 通常のパニックは最終手段として使用し、可能な限りResult型でエラー処理を行うこと
 
-use crate::{error, warn};
+use crate::{result, warn};
 
 /// エラーコンテキスト（パニック時に使用）
 pub struct ErrorContext {
@@ -20,7 +20,7 @@ pub struct ErrorContext {
 #[allow(deprecated)]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    error!("!!! KERNEL PANIC !!!");
+    crate::info!("!!! KERNEL PANIC !!!");
 
     if let Some(loc) = info.location() {
         warn!("Location: {}:{}:{}", loc.file(), loc.line(), loc.column());

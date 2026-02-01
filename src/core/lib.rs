@@ -5,7 +5,7 @@
 #![deny(clippy::expect_used)]
 
 /// エラー型定義
-pub mod error;
+pub mod result;
 
 /// 割込み管理
 pub mod interrupt;
@@ -34,7 +34,7 @@ pub mod init;
 /// ユーティリティモジュール
 pub mod util;
 
-pub use error::{KernelError, Result};
+pub use result::{Kernel, Result};
 pub use kernel::kernel_entry;
 
 #[repr(C)]
