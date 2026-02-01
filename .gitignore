@@ -2,3 +2,4 @@
 *.fossil
 *.fslckout
 *.log
+*.bin

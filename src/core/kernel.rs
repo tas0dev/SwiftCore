@@ -1,7 +1,7 @@
 //! カーネルエントリーポイント
 
-use crate::error::handle_kernel_error;
-use crate::error::{KernelError, ProcessError};
+use crate::result::handle_kernel_error;
+use crate::result::{Kernel, Process};
 use crate::{info, vprintln};
 use crate::{init::kinit, task, util, BootInfo, MemoryRegion, Result};
 
@@ -12,7 +12,7 @@ struct KernelStack([u8; KERNEL_THREAD_STACK_SIZE]);
 
 static mut KERNEL_THREAD_STACK: KernelStack = KernelStack([0; KERNEL_THREAD_STACK_SIZE]);
 
-/// カーネルエントリーポイント
+/// カーネル初期化いろいろ（エントリーポイント）
 #[no_mangle]
 pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
     util::log::set_level(util::log::LogLevel::Debug);
@@ -38,26 +38,27 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
 
 /// カーネルメイン処理
 fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]) -> Result<()> {
-    info!("Initializing kernel...");
-    info!("Memory map entries: {}", boot_info.memory_map_len);
+    match crate::syscall::exec::exec_kernel(
+        crate::init::fs::read("/hello.bin").map(|_| 0).unwrap_or(0),
+    ) {
+        r => {
+            crate::debug!("exec returned: {}", r);
+        }
+    }
 
-    vprintln!("Framebuffer: {:#x}", boot_info.framebuffer_addr);
-    vprintln!(
-        "Resolution: {}x{}",
-        boot_info.screen_width,
-        boot_info.screen_height
-    );
+    info!("Starting task scheduler...");
+    task::start_scheduling();
 
-    info!(
-        "Physical memory offset: {:#x}",
-        boot_info.physical_memory_offset
-    );
+    #[allow(unreachable_code)]
+    Ok(())
+}
 
+fn create_kernel_proc() -> Result<()> {
     let kernel_process = task::Process::new("kernel", task::PrivilegeLevel::Core, None, 0);
     let kernel_pid = kernel_process.id();
 
     if task::add_process(kernel_process).is_none() {
-        return Err(KernelError::Process(ProcessError::MaxProcessesReached));
+        return Err(Kernel::Process(Process::MaxProcessesReached));
     }
 
     let stack_addr =
@@ -71,21 +72,9 @@ fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]
     );
 
     if task::add_thread(kernel_thread).is_none() {
-        return Err(KernelError::Process(ProcessError::MaxProcessesReached));
+        return Err(Kernel::Process(Process::MaxProcessesReached));
     }
 
-    match crate::syscall::exec::exec_kernel(
-        crate::init::fs::read("/hello.bin").map(|_| 0).unwrap_or(0),
-    ) {
-        r => {
-            crate::debug!("exec returned: {}", r);
-        }
-    }
-
-    info!("Starting task scheduler...");
-    task::start_scheduling();
-
-    #[allow(unreachable_code)]
     Ok(())
 }
 

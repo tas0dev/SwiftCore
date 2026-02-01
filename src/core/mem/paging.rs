@@ -2,7 +2,7 @@
 //!
 //! 仮想メモリとページテーブル管理
 
-use crate::error::{KernelError, MemoryError, Result};
+use crate::result::{Kernel, Memory, Result};
 use crate::sprintln;
 use spin::Mutex;
 use x86_64::{
@@ -16,17 +16,128 @@ static PAGE_TABLE: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
 static PHYS_OFFSET: Mutex<Option<u64>> = Mutex::new(None);
 
 /// ページングシステムを初期化
-pub fn init(physical_memory_offset: u64) {
+pub fn init(boot_info: &'static crate::BootInfo) {
+    use crate::mem::frame;
+    use uefi::table::boot::MemoryType as UefiMemoryType;
+    use x86_64::registers::control::{Cr3, Cr3Flags};
+    use x86_64::structures::paging::PageTableFlags;
+
     sprintln!("Initializing paging...");
 
+    let physical_memory_offset = boot_info.physical_memory_offset;
+
+    // 新しいレベル4ページテーブル用のフレームを割り当て
+    let l4_frame = frame::allocate_frame().expect("Failed to allocate frame for new page table");
+    let l4_table_addr = l4_frame.start_address().as_u64();
+    sprintln!("New L4 table at {:#x}", l4_table_addr);
+
+    // 新しいページテーブルを初期化
+    let l4_table = unsafe { &mut *(l4_table_addr as *mut PageTable) };
+    l4_table.zero();
+
+    let mut page_table =
+        unsafe { OffsetPageTable::new(l4_table, VirtAddr::new(physical_memory_offset)) };
+
+    // フレームアロケータを取得
+    let mut allocator_lock = frame::FRAME_ALLOCATOR.lock();
+    let allocator = allocator_lock
+        .as_mut()
+        .expect("Frame allocator not initialized");
+
+    // メモリマップに基づいて必要な領域をidentity mapする
+    let memory_map = unsafe {
+        core::slice::from_raw_parts(
+            boot_info.memory_map_addr as *const crate::MemoryRegion,
+            boot_info.memory_map_len,
+        )
+    };
+
+    let mut mapped_pages = 0;
+    
+    // 現在のスタックポインタを取得して、スタックが含まれる領域を特定する
+    let rsp: u64;
     unsafe {
-        let level_4_table = active_level_4_table(physical_memory_offset);
-        let page_table = OffsetPageTable::new(level_4_table, VirtAddr::new(physical_memory_offset));
+        core::arch::asm!("mov {}, rsp", out(reg) rsp);
+    }
+    sprintln!("Current RSP: {:#x}", rsp);
+
+    // マップすべき領域のタイプ
+    // 基本的にOSが使用する可能性のある領域はすべてRWでマップする
+    for region in memory_map {
+        let is_stack = rsp >= region.start && rsp < (region.start + region.len);
+        let should_map = match region.region_type {
+            crate::MemoryType::Usable => true,
+            crate::MemoryType::BootloaderReclaimable => true,
+            crate::MemoryType::AcpiReclaimable => true,
+            crate::MemoryType::AcpiNvs => true,
+            crate::MemoryType::Reserved => is_stack, // スタック領域のみマップ
+            crate::MemoryType::BadMemory => false,
+
+            _ => true,
+        };
+
+        if should_map {
+            sprintln!(
+                "Mapping region {:?} at {:#x}",
+                region.region_type,
+                region.start
+            );
+            let start_frame =
+                PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(region.start));
+            let end_frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(
+                region.start + region.len - 1,
+            ));
+
+            for frame in PhysFrame::range_inclusive(start_frame, end_frame) {
+                let phys = frame.start_address();
+                let virt = VirtAddr::new(phys.as_u64() + physical_memory_offset); // Identity map
+                let page = Page::containing_address(virt);
+
+                let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+
+                unsafe {
+                    if let Ok(mapper) = page_table.map_to(page, frame, flags, allocator) {
+                        mapper.ignore();
+                        mapped_pages += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // フレームバッファをマップ (もしメモリマップに含まれていなければ)
+    let fb_start =
+        PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(boot_info.framebuffer_addr));
+    let fb_end = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(
+        boot_info.framebuffer_addr + (boot_info.framebuffer_size as u64) - 1,
+    ));
+    for frame in PhysFrame::range_inclusive(fb_start, fb_end) {
+        let phys = frame.start_address();
+        let virt = VirtAddr::new(phys.as_u64() + physical_memory_offset);
+        let page = Page::containing_address(virt);
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE; // | PageTableFlags::NO_CACHE?
+        unsafe {
+            if let Ok(mapper) = page_table.map_to(page, frame, flags, allocator) {
+                mapper.ignore();
+            }
+        }
+    }
+
+    // CR3スイッチ
+    drop(allocator_lock);
+
+    sprintln!("Switching to new page table...");
+    unsafe {
+        Cr3::write(l4_frame, Cr3Flags::empty());
         *PAGE_TABLE.lock() = Some(page_table);
         *PHYS_OFFSET.lock() = Some(physical_memory_offset);
     }
+    sprintln!("Switched CR3 successfully.");
 
-    sprintln!("Paging initialized");
+    sprintln!(
+        "Paging initialized. New table active. Mapped {} pages.",
+        mapped_pages
+    );
 }
 
 /// アクティブなレベル4ページテーブルへの参照を取得
@@ -46,17 +157,17 @@ pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<(
     let mut page_table_lock = PAGE_TABLE.lock();
     let page_table = page_table_lock
         .as_mut()
-        .ok_or(KernelError::Memory(MemoryError::NotMapped))?;
+        .ok_or(Kernel::Memory(Memory::NotMapped))?;
 
     let mut allocator_lock = super::frame::FRAME_ALLOCATOR.lock();
     let allocator = allocator_lock
         .as_mut()
-        .ok_or(KernelError::Memory(MemoryError::OutOfMemory))?;
+        .ok_or(Kernel::Memory(Memory::OutOfMemory))?;
 
     unsafe {
         page_table
             .map_to(page, frame, flags, allocator)
-            .map_err(|_| KernelError::Memory(MemoryError::InvalidAddress))?
+            .map_err(|_| Kernel::Memory(Memory::InvalidAddress))?
             .flush();
     }
 
@@ -85,12 +196,12 @@ pub fn map_and_copy_segment(
     src: &[u8],
     writable: bool,
 ) -> crate::Result<()> {
-    use crate::error::{KernelError, MemoryError};
+    use crate::result::{Kernel, Memory};
     use crate::mem::frame;
     use x86_64::structures::paging::PageTableFlags as Flags;
 
-    let phys_off = physical_memory_offset().ok_or(crate::error::KernelError::Memory(
-        crate::error::MemoryError::NotMapped,
+    let phys_off = physical_memory_offset().ok_or(crate::result::Kernel::Memory(
+        crate::result::Memory::NotMapped,
     ))?;
 
     let start = vaddr & !0xfffu64;
@@ -117,7 +228,7 @@ pub fn map_and_copy_segment(
             page_start,
             phys_frame_addr
         );
-        
+
         if let Some(phys_check) = translate_addr(VirtAddr::new(page_start)) {
             crate::debug!(
                 "translate_addr({:#x}) = phys {:#x}",

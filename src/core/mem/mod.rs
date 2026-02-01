@@ -9,15 +9,15 @@ pub mod gdt;
 pub mod paging;
 pub mod tss;
 
-pub fn init(physical_memory_offset: u64) {
+pub fn init(boot_info: &'static crate::BootInfo) {
     sprintln!("Initializing memory...");
 
-    // 割り込みを確実に無効化
     x86_64::instructions::interrupts::disable();
 
-    paging::init(physical_memory_offset);
     gdt::init();
     interrupt::init_idt();
+
+    paging::init(boot_info);
 
     // PITを停止してからPICを初期化
     interrupt::disable_pit();
