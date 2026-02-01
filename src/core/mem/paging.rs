@@ -53,7 +53,7 @@ pub fn init(boot_info: &'static crate::BootInfo) {
     };
 
     let mut mapped_pages = 0;
-    
+
     // 現在のスタックポインタを取得して、スタックが含まれる領域を特定する
     let rsp: u64;
     unsafe {
@@ -162,12 +162,22 @@ pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<(
     let mut allocator_lock = super::frame::FRAME_ALLOCATOR.lock();
     let allocator = allocator_lock
         .as_mut()
-        .ok_or(Kernel::Memory(Memory::OutOfMemory))?;
+        .ok_or(crate::result::Kernel::Memory(
+            crate::result::Memory::OutOfMemory,
+        ))?;
+
+    // すでにマップされている場合はアンマップする (Identity Mappingとの競合回避)
+    use x86_64::structures::paging::mapper::Translate;
+    if page_table.translate_page(page).is_ok() {
+        if let Ok((_, flush)) = page_table.unmap(page) {
+            flush.flush();
+        }
+    }
 
     unsafe {
         page_table
             .map_to(page, frame, flags, allocator)
-            .map_err(|_| Kernel::Memory(Memory::InvalidAddress))?
+            .map_err(|_| crate::result::Kernel::Memory(crate::result::Memory::InvalidAddress))?
             .flush();
     }
 
@@ -196,8 +206,8 @@ pub fn map_and_copy_segment(
     src: &[u8],
     writable: bool,
 ) -> crate::Result<()> {
-    use crate::result::{Kernel, Memory};
     use crate::mem::frame;
+    use crate::result::{Kernel, Memory};
     use x86_64::structures::paging::PageTableFlags as Flags;
 
     let phys_off = physical_memory_offset().ok_or(crate::result::Kernel::Memory(
