@@ -94,5 +94,6 @@ fn halt_forever() -> ! {
 fn kernel_thread() -> ! {
     loop {
         x86_64::instructions::hlt();
+        info!("[core] kernel thread alive");
     }
 }
