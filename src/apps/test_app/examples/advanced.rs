@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
 
+extern crate test_app;
 use core::panic::PanicInfo;
 
-extern crate test_app;
-use test_app::{yield_now, get_ticks};
+use test_app::yield_now;
 
 /// ユーザーアプリのエントリーポイント
 ///
@@ -14,7 +14,6 @@ use test_app::{yield_now, get_ticks};
 /// 3. 定期的にyieldして他のタスクに譲る
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    let start_ticks = get_ticks();
     let mut counter = 0u64;
 
     loop {
@@ -24,8 +23,6 @@ pub extern "C" fn _start() -> ! {
             break;
         }
     }
-
-    let end_ticks = get_ticks();
 
     loop {
         // TODO: write()システムコールが実装されたら結果を出力
