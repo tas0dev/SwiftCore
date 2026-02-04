@@ -110,7 +110,7 @@ fn is_dir(mode: u16) -> bool {
     mode & 0x4000 != 0
 }
 
-fn block_slice<'a>(image: &'a [u8], block_size: u32, block: u32) -> Option<&'a [u8]> {
+fn block_slice(image: &[u8], block_size: u32, block: u32) -> Option<&[u8]> {
     if block == 0 {
         return None;
     }

@@ -11,17 +11,16 @@ use x86_64::{
     },
     VirtAddr,
 };
+use crate::mem::frame;
+use uefi::table::boot::MemoryType as UefiMemoryType;
+use x86_64::registers::control::{Cr3, Cr3Flags};
+
 
 static PAGE_TABLE: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
 static PHYS_OFFSET: Mutex<Option<u64>> = Mutex::new(None);
 
 /// ページングシステムを初期化
 pub fn init(boot_info: &'static crate::BootInfo) {
-    use crate::mem::frame;
-    use uefi::table::boot::MemoryType as UefiMemoryType;
-    use x86_64::registers::control::{Cr3, Cr3Flags};
-    use x86_64::structures::paging::PageTableFlags;
-
     sprintln!("Initializing paging...");
 
     let physical_memory_offset = boot_info.physical_memory_offset;

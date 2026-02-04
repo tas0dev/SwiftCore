@@ -6,8 +6,6 @@ version = 4
 name = "SwiftCore"
 version = "0.1.0"
 dependencies = [
- "bitflags",
- "log",
  "spin",
  "uefi",
  "x86_64",
