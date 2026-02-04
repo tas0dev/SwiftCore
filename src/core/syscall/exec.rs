@@ -79,13 +79,21 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
                 return crate::syscall::types::EINVAL;
             }
         };
-        let thread_fn: fn() -> ! = if entry != 0 {
-            unsafe { core::mem::transmute::<u64, fn() -> !>(entry) }
-        } else {
-            fn halt() -> ! { loop { x86_64::instructions::hlt(); } }
-            halt
+
+        // ユーザーモードで実行するためのトランポリン関数を作成
+        let entry_addr = entry;
+        let user_stack_top = stack_top;
+
+        // クロージャをstatic関数ポインタに変換できないので、
+        // グローバルな状態に保存するか、別の方法が必要
+        // 今は簡易的にunsafeにキャストする
+        let trampoline: fn() -> ! = unsafe {
+            // トランポリン関数のアドレスを生成
+            // この関数はカーネルモードで起動し、ユーザーモードにジャンプする
+            core::mem::transmute(usermode_trampoline as *const ())
         };
-        let thread = crate::task::Thread::new(pid, path, thread_fn, kstack, KERNEL_THREAD_STACK_SIZE);
+
+        let thread = crate::task::Thread::new(pid, path, trampoline, kstack, KERNEL_THREAD_STACK_SIZE);
         if crate::task::add_thread(thread).is_none() {
             crate::warn!("Failed to add thread");
             return crate::syscall::types::EINVAL;
@@ -98,3 +106,15 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
 
     crate::syscall::types::EINVAL
 }
+
+/// ユーザーモードへ移行するトランポリン関数
+/// この関数はカーネルモードで起動され、ユーザーモードにジャンプする
+fn usermode_trampoline() -> ! {
+    // TODO: スレッドローカルにentry_addrとuser_stack_topを保存する必要がある
+    // 現状では動かないのでhaltする
+    crate::warn!("usermode_trampoline: not fully implemented yet");
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+

@@ -19,7 +19,19 @@ static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
 struct Selectors {
     code_selector: SegmentSelector,
     data_selector: SegmentSelector,
+    user_code_selector: SegmentSelector,
+    user_data_selector: SegmentSelector,
     tss_selector: SegmentSelector,
+}
+
+/// ユーザーモードのコードセグメントセレクタを取得
+pub fn user_code_selector() -> SegmentSelector {
+    GDT.get().expect("GDT not initialized").1.user_code_selector
+}
+
+/// ユーザーモードのデータセグメントセレクタを取得
+pub fn user_data_selector() -> SegmentSelector {
+    GDT.get().expect("GDT not initialized").1.user_data_selector
 }
 
 /// GDTを初期化
@@ -34,11 +46,15 @@ pub fn init() {
         let mut gdt = GlobalDescriptorTable::new();
         let code_selector = gdt.append(Descriptor::kernel_code_segment());
         let data_selector = gdt.append(Descriptor::kernel_data_segment());
+        let user_data_selector = gdt.append(Descriptor::user_data_segment());
+        let user_code_selector = gdt.append(Descriptor::user_code_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(tss));
 
         sprintln!("GDT entries created:");
         sprintln!("  Code selector: {:?}", code_selector);
         sprintln!("  Data selector: {:?}", data_selector);
+        sprintln!("  User data selector: {:?}", user_data_selector);
+        sprintln!("  User code selector: {:?}", user_code_selector);
         sprintln!("  TSS selector: {:?}", tss_selector);
 
         (
@@ -46,6 +62,8 @@ pub fn init() {
             Selectors {
                 code_selector,
                 data_selector,
+                user_code_selector,
+                user_data_selector,
                 tss_selector,
             },
         )
