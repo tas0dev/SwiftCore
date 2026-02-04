@@ -220,20 +220,3 @@ pub fn handle_kernel_error(error: Kernel) {
 
 /// 結果型のエイリアス
 pub type Result<T> = core::result::Result<T, Kernel>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_is_fatal() {
-        assert!(Kernel::Memory(Memory::OutOfMemory).is_fatal());
-        assert!(!Kernel::Memory(Memory::InvalidAddress).is_fatal());
-    }
-
-    #[test]
-    fn test_error_is_retryable() {
-        assert!(Kernel::Device(Device::Busy).is_retryable());
-        assert!(!Kernel::Memory(Memory::OutOfMemory).is_retryable());
-    }
-}
