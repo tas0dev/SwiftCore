@@ -7,6 +7,7 @@ pub mod ids;
 pub mod process;
 pub mod scheduler;
 pub mod thread;
+pub mod usermode;
 
 pub use context::{switch_context, switch_to_thread, Context};
 pub use ids::{PrivilegeLevel, ProcessId, ProcessState, ThreadId, ThreadState};
@@ -24,3 +25,4 @@ pub use thread::{
     remove_thread, set_current_thread, thread_count, with_thread, with_thread_mut, Thread,
     ThreadQueue,
 };
+pub use usermode::jump_to_usermode;
