@@ -16,33 +16,20 @@ use test_app::{yield_now, get_ticks};
 pub extern "C" fn _start() -> ! {
     let start_ticks = get_ticks();
     let mut counter = 0u64;
-    let mut last_yield_counter = 0u64;
 
     loop {
         counter = counter.wrapping_add(1);
-
-        // 1000回ごとにyieldを呼ぶ
-        if counter - last_yield_counter >= 1000 {
-            yield_now();
-            last_yield_counter = counter;
-        }
-
         // 1000000回でループを抜ける（テスト用）
         if counter >= 1000000 {
             break;
         }
     }
 
-    // 終了前に最終的な統計を計算
     let end_ticks = get_ticks();
-    let elapsed = end_ticks.wrapping_sub(start_ticks);
 
-    // TODO: write()システムコールが実装されたら結果を出力
-    // write(1, "Task completed\n");
-
-    // 無限ループでyield（プロセスを維持）
     loop {
-        yield_now();
+        // TODO: write()システムコールが実装されたら結果を出力
+        // write(1, "Counter: {}, Time: {} ticks\n", counter, end_ticks - start_ticks);
     }
 }
 
