@@ -277,23 +277,12 @@ impl ThreadQueue {
             }
 
             if let Some(start_idx) = current_index {
-                // 現在のインデックスの次から検索
-                for i in (start_idx + 1)..Self::MAX_THREADS {
-                    if let Some(thread) = &self.threads[i] {
-                        if thread.state() == ThreadState::Ready {
-                            // インデックスを使って可変参照を返す
-                            return self.threads[i].as_mut();
-                        }
-                    }
-                }
-
-                // 見つからなければ先頭から現在のインデックスまで検索
-                for i in 0..=start_idx {
-                    if let Some(thread) = &self.threads[i] {
-                        if thread.state() == ThreadState::Ready {
-                            // インデックスを使って可変参照を返す
-                            return self.threads[i].as_mut();
-                        }
+                for i in (start_idx + 1..Self::MAX_THREADS).chain(0..=start_idx) {
+                    if self.threads[i]
+                        .as_ref()
+                        .is_some_and(|t| t.state() == ThreadState::Ready)
+                    {
+                        return self.threads[i].as_mut();
                     }
                 }
             }

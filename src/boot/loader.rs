@@ -113,7 +113,7 @@ fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         BOOT_INFO.stride = stride;
         BOOT_INFO.memory_map_addr = MEMORY_MAP.as_ptr() as u64;
         BOOT_INFO.memory_map_len = map_count;
-        BOOT_INFO.memory_map_entry_size = core::mem::size_of::<MemoryRegion>();
+        BOOT_INFO.memory_map_entry_size = size_of::<MemoryRegion>();
     }
 
     unsafe {
