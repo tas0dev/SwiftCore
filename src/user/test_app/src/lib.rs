@@ -14,8 +14,10 @@ pub enum SyscallNumber {
     GetTicks = 2,
     IpcSend = 3,
     IpcRecv = 4,
-    Exit = 5,
-    Write = 6,
+    Exec = 5,
+    Exit = 6,
+    Write = 7,
+    Read = 8,
 }
 
 /// システムコールを呼び出す（引数0個）
@@ -101,7 +103,7 @@ pub fn exit(code: u64) -> ! {
     }
 }
 
-/// 文字列を出力（TODO: writeシステムコール実装後に有効化）
+/// ファイルディスクリプタに書き込む
 #[inline]
 pub fn write(fd: u64, buf: &[u8]) -> u64 {
     syscall3(
@@ -111,3 +113,21 @@ pub fn write(fd: u64, buf: &[u8]) -> u64 {
         buf.len() as u64,
     )
 }
+
+/// ファイルディスクリプタから読み込む
+#[inline]
+pub fn read(fd: u64, buf: &mut [u8]) -> u64 {
+    syscall3(
+        SyscallNumber::Read as u64,
+        fd,
+        buf.as_mut_ptr() as u64,
+        buf.len() as u64,
+    )
+}
+
+/// 標準出力に文字列を出力
+#[inline]
+pub fn print(s: &str) -> u64 {
+    write(1, s.as_bytes())
+}
+
