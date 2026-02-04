@@ -244,10 +244,7 @@ pub fn exit_current_task(exit_code: u64) -> ! {
             thread.set_state(ThreadState::Terminated);
         });
 
-        // スレッドをキューから削除
-        remove_thread(current_id);
-
-        // 現在のスレッドをクリア
+        // 現在のスレッドをクリア（先にクリアしないとschedule()が正しく動作しない）
         set_current_thread(None);
 
         // 次のスレッドにスケジューリング（戻ってこない）
@@ -256,12 +253,19 @@ pub fn exit_current_task(exit_code: u64) -> ! {
 
             crate::debug!("Switching from exited thread to {:?}", next_id);
 
-            // コンテキストスイッチを実行（戻ってこない）
+            // スレッドをキューから削除（コンテキストスイッチ前に削除）
+            remove_thread(current_id);
+
+            // コンテキストスイッチを実行（終了したスレッドのコンテキストは保存しない）
+            // old_context_ptr = None を渡すことで、現在のコンテキストを保存せずに次のスレッドにジャンプ
             unsafe {
-                switch_to_thread(Some(current_id), next_id);
+                switch_to_thread(None, next_id);
             }
 
             unreachable!("switch_to_thread should never return");
+        } else {
+            // スレッドをキューから削除
+            remove_thread(current_id);
         }
     }
 
