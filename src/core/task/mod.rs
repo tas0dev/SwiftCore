@@ -15,7 +15,7 @@ pub use process::{
     Process, ProcessTable,
 };
 pub use scheduler::{
-    block_current_thread, disable_scheduler, enable_scheduler, init_scheduler,
+    block_current_thread, disable_scheduler, enable_scheduler, exit_current_task, init_scheduler,
     is_scheduler_enabled, schedule, schedule_and_switch, scheduler_tick, set_time_slice,
     sleep_thread, start_scheduling, terminate_thread, wake_thread, yield_now, Scheduler,
 };
