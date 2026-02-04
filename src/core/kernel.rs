@@ -44,13 +44,13 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
 /// カーネルメイン処理
 fn kernel_main(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]) -> Result<()> {
     // test.elfを実行
-    let path = "/test.elf\0";
+    let path = "/test_app.elf\0";
     match crate::syscall::exec::exec_kernel(path.as_ptr() as u64) {
         r if r != crate::syscall::EINVAL => {
-            info!("exec /test.elf returned: {}", r);
+            info!("exec /test_app.elf returned: {}", r);
         }
         _ => {
-            crate::warn!("Failed to exec /test.elf");
+            crate::warn!("Failed to exec /test_app.elf");
         }
     }
 

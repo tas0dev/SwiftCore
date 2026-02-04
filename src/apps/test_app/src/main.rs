@@ -21,11 +21,11 @@ pub extern "C" fn _start() -> ! {
 
         // 10000回ごとにメッセージを出力
         if counter % 10000 == 0 {
-            print("User app is running...\n");
+            print("TEST: Message updated successfully!\n");
             yield_now();
         }
 
-        // 50000回でループを抜ける（テスト用）
+        // 50000回でループを抜ける
         if counter >= 50000 {
             break;
         }
@@ -33,7 +33,7 @@ pub extern "C" fn _start() -> ! {
 
     // 終了メッセージ
     print("User app finished. Exiting...\n");
-    
+
     // exitシステムコールでプロセスを終了
     exit(0);
 }
