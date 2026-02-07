@@ -1,5 +1,3 @@
-//! カーネルエントリーポイント
-
 use crate::result::handle_kernel_error;
 use crate::result::{Kernel, Process};
 use crate::{debug, info, sprintln, vprintln};
@@ -14,7 +12,19 @@ struct KernelStack([u8; KERNEL_THREAD_STACK_SIZE]);
 
 static mut KERNEL_THREAD_STACK: KernelStack = KernelStack([0; KERNEL_THREAD_STACK_SIZE]);
 
-/// カーネル初期化
+/// カーネルメイン関数
+fn kernel_main() -> ! {
+    debug!("Kernel started");
+
+    let test_elf_path = "test_app.elf\0";
+    exec_kernel(test_elf_path.as_ptr() as u64);
+
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+/// カーネルエントリポイント
 #[no_mangle]
 pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
     util::log::set_level(util::log::LogLevel::Debug);
@@ -58,18 +68,6 @@ fn create_kernel_proc(boot_info: &'static BootInfo, memory_map: &'static [Memory
     }
 
     Ok(())
-}
-
-/// カーネルメイン関数
-fn kernel_main() -> ! {
-    debug!("Kernel started");
-
-    let test_elf_path = "test_app.elf\0";
-    exec_kernel(test_elf_path.as_ptr() as u64);
-
-    loop {
-        x86_64::instructions::hlt();
-    }
 }
 
 /// システムを無限ループで停止
