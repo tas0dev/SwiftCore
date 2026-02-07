@@ -69,35 +69,35 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
         // push完了後のスタックレイアウト (rsp からのオフセット):
         //
         // int 0x80が呼ばれた時点で、CPUが自動的にスタックにプッシュ（合計40バイト）:
-        //   [元のrsp-8]   SS
-        //   [元のrsp-16]  RSP
-        //   [元のrsp-24]  RFLAGS
-        //   [元のrsp-32]  CS
-        //   [元のrsp-40]  RIP  ← この時点でrspはここを指す
+        //   [R0-8]   RIP
+        //   [R0-16]  CS
+        //   [R0-24]  RFLAGS
+        //   [R0-32]  RSP (ユーザーのrsp)
+        //   [R0-40]  SS  ← R0 = 元のrsp
         //
         // その後、ハンドラでpush順: rax, rcx, rdx, rbx, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15
         //
-        // 最終的なスタックレイアウト:
-        // [rsp+0]   = r15  (最後にpush)
-        // [rsp+8]   = r14
-        // [rsp+16]  = r13
-        // [rsp+24]  = r12
-        // [rsp+32]  = r11
-        // [rsp+40]  = r10 (arg3)
-        // [rsp+48]  = r9
-        // [rsp+56]  = r8  (arg4)
-        // [rsp+64]  = rdi (arg0)
-        // [rsp+72]  = rsi (arg1)
-        // [rsp+80]  = rbp
-        // [rsp+88]  = rbx
-        // [rsp+96]  = rdx (arg2)
-        // [rsp+104] = rcx
-        // [rsp+112] = rax (syscall number) (最初にpush)
-        // [rsp+120] = RIP (CPUが自動pushしたもの)
-        // [rsp+128] = CS
-        // [rsp+136] = RFLAGS
-        // [rsp+144] = RSP
-        // [rsp+152] = SS
+        // 最終的なスタックレイアウト (rsp = R0-160):
+        // [rsp+0]   = r15  (最後にpush) [R0-160]
+        // [rsp+8]   = r14              [R0-152]
+        // [rsp+16]  = r13              [R0-144]
+        // [rsp+24]  = r12              [R0-136]
+        // [rsp+32]  = r11              [R0-128]
+        // [rsp+40]  = r10 (arg3)       [R0-120]
+        // [rsp+48]  = r9               [R0-112]
+        // [rsp+56]  = r8  (arg4)       [R0-104]
+        // [rsp+64]  = rdi (arg0)       [R0-96]
+        // [rsp+72]  = rsi (arg1)       [R0-88]
+        // [rsp+80]  = rbp              [R0-80]
+        // [rsp+88]  = rbx              [R0-72]
+        // [rsp+96]  = rdx (arg2)       [R0-64]
+        // [rsp+104] = rcx              [R0-56]
+        // [rsp+112] = rax (syscall #)  [R0-48] (最初にpush)
+        // [rsp+120] = SS               [R0-40]
+        // [rsp+128] = RSP              [R0-32]
+        // [rsp+136] = RFLAGS           [R0-24]
+        // [rsp+144] = CS               [R0-16]
+        // [rsp+152] = RIP              [R0-8]
 
         // カーネルデータセグメントをロード
         // （ds/esはスタックに保存しない。復元時にユーザーセグメントを再設定）
@@ -105,45 +105,34 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
         "mov ds, ax",
         "mov es, ax",
 
-        // デバッグ: スタック上の実際の値を確認
-        // 一時的にr11を使ってデバッグ出力用に値を保存
-        "mov r11, [rsp + 112]",  // rax from original stack
-        "push r11",              // デバッグ用に保存
-
         // システムコール引数を Rust 関数に渡す (System V ABI)
         // 引数: (num, arg0, arg1, arg2, arg3, arg4)
         // ユーザーランドのレジスタ配置: (rax=num, rdi=arg0, rsi=arg1, rdx=arg2, r10=arg3, r8=arg4)
         // カーネル関数の引数: (rdi=num, rsi=arg0, rdx=arg1, rcx=arg2, r8=arg3, r9=arg4)
-        
-        // スタックレイアウト計算:
-        // - 15個のレジスタpush後: rsp = R0 - 160
-        // - デバッグr11 push後: rsp = R0 - 168  
-        // - sub rsp,8後: rsp = R0 - 176
-        // - call後(Rust関数内): rsp = R0 - 184
-        //
-        // レジスタの保存位置:
-        // rax=[R0-48]=[rsp+136], rdi=[R0-96]=[rsp+88], rsi=[R0-88]=[rsp+96]
-        // rdx=[R0-64]=[rsp+120], r10=[R0-120]=[rsp+64], r8=[R0-104]=[rsp+80]
 
-        "mov rdi, [rsp + 136]",  // rax (syscall number) -> rdi
-        "mov rsi, [rsp + 88]",   // rdi (arg0) -> rsi
-        "mov rdx, [rsp + 96]",   // rsi (arg1) -> rdx  
-        "mov rcx, [rsp + 120]",  // rdx (arg2) -> rcx
-        "mov r8,  [rsp + 64]",   // r10 (arg3) -> r8
-        "mov r9,  [rsp + 80]",   // r8  (arg4) -> r9
+        // カーネルデータセグメントをロード（レジスタ設定の前に）
+        "push rax",             // raxを一時保存
+        "mov ax, 0x10",         // カーネルデータセグメント (index=2)
+        "mov ds, ax",
+        "mov es, ax",
+        "pop rax",              // raxを復元
 
         // スタックを16バイトアラインメント（System V ABI要件）
-        // 現在 rsp は 16の倍数 + 8 なので、8引く
         "sub rsp, 8",
+
+        // テスト: call直前に固定値を設定
+        "mov rdi, 0x1234",
+        "mov rsi, 0x5678",
+        "mov rdx, 0x9abc",
+        "mov rcx, 0xdef0",
+        "mov r8,  0x1111",
+        "mov r9,  0x2222",
 
         // Rust 関数を呼び出し
         "call {syscall_handler}",
 
         // スタックを戻す
         "add rsp, 8",
-
-        // デバッグ用にpushした値をpop
-        "pop r11",
 
         // 戻り値 (rax) をスタック上の保存された rax の位置に書き込む
         "mov [rsp + 112], rax",
