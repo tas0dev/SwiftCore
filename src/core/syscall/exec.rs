@@ -55,7 +55,7 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
         }
 
         // allocate small user stack near high address
-        let stack_top: u64 = 0x0000_7FFF_FFF0_0000u64;
+        let stack_top: u64 = 0x0000_7FFF_FFF0_0000u64 - 8;
         let stack_size_pages: usize = 8; // 32KiB stack
         let stack_base = stack_top - (stack_size_pages as u64 * 4096);
         crate::debug!("Allocating user stack: base={:#x}, top={:#x}, size={} pages", 

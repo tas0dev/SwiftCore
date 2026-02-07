@@ -105,17 +105,32 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
         "mov ds, ax",
         "mov es, ax",
 
+        // デバッグ: スタック上の実際の値を確認
+        // 一時的にr11を使ってデバッグ出力用に値を保存
+        "mov r11, [rsp + 112]",  // rax from original stack
+        "push r11",              // デバッグ用に保存
+
         // システムコール引数を Rust 関数に渡す (System V ABI)
         // 引数: (num, arg0, arg1, arg2, arg3, arg4)
         // ユーザーランドのレジスタ配置: (rax=num, rdi=arg0, rsi=arg1, rdx=arg2, r10=arg3, r8=arg4)
         // カーネル関数の引数: (rdi=num, rsi=arg0, rdx=arg1, rcx=arg2, r8=arg3, r9=arg4)
+        
+        // スタックレイアウト計算:
+        // - 15個のレジスタpush後: rsp = R0 - 160
+        // - デバッグr11 push後: rsp = R0 - 168  
+        // - sub rsp,8後: rsp = R0 - 176
+        // - call後(Rust関数内): rsp = R0 - 184
+        //
+        // レジスタの保存位置:
+        // rax=[R0-48]=[rsp+136], rdi=[R0-96]=[rsp+88], rsi=[R0-88]=[rsp+96]
+        // rdx=[R0-64]=[rsp+120], r10=[R0-120]=[rsp+64], r8=[R0-104]=[rsp+80]
 
-        "mov rdi, [rsp + 112]",  // rax (syscall number) -> rdi
-        "mov rsi, [rsp + 64]",   // rdi (arg0) -> rsi
-        "mov rdx, [rsp + 72]",   // rsi (arg1) -> rdx
-        "mov rcx, [rsp + 96]",   // rdx (arg2) -> rcx
-        "mov r8,  [rsp + 40]",   // r10 (arg3) -> r8
-        "mov r9,  [rsp + 56]",   // r8  (arg4) -> r9
+        "mov rdi, [rsp + 136]",  // rax (syscall number) -> rdi
+        "mov rsi, [rsp + 88]",   // rdi (arg0) -> rsi
+        "mov rdx, [rsp + 96]",   // rsi (arg1) -> rdx  
+        "mov rcx, [rsp + 120]",  // rdx (arg2) -> rcx
+        "mov r8,  [rsp + 64]",   // r10 (arg3) -> r8
+        "mov r9,  [rsp + 80]",   // r8  (arg4) -> r9
 
         // スタックを16バイトアラインメント（System V ABI要件）
         // 現在 rsp は 16の倍数 + 8 なので、8引く
@@ -126,6 +141,9 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
 
         // スタックを戻す
         "add rsp, 8",
+
+        // デバッグ用にpushした値をpop
+        "pop r11",
 
         // 戻り値 (rax) をスタック上の保存された rax の位置に書き込む
         "mov [rsp + 112], rax",
@@ -199,8 +217,8 @@ extern "C" fn syscall_handler_rust(
 ) -> u64 {
     use crate::debug;
 
-    debug!("SYSCALL: num={}, args=[{:#x}, {:#x}, {:#x}]", num, arg0, arg1, arg2);
-
+    debug!("SYSCALL: num={}, args=[{:#x}, {:#x}, {:#x}, {:#x}, {:#x}]", 
+           num, arg0, arg1, arg2, arg3, arg4);
 
     let ret = dispatch(num, arg0, arg1, arg2, arg3, arg4);
 
