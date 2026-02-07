@@ -4,3 +4,4 @@
 *.fslckout
 *.log
 *.bin
+*.elf

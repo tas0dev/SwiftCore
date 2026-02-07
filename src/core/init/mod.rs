@@ -13,6 +13,9 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
         boot_info.stride,
     );
 
+    // CPU機能の初期化（SSE/FPU有効化）
+    crate::cpu::init();
+
     let memory_map = unsafe {
         core::slice::from_raw_parts(
             boot_info.memory_map_addr as *const MemoryRegion,

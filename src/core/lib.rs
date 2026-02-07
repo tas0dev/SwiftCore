@@ -34,9 +34,13 @@ pub mod init;
 /// ユーティリティモジュール
 pub mod util;
 
+/// CPU機能の初期化
+pub mod cpu;
+
 pub use result::{Kernel, Result};
 pub use kernel::kernel_entry;
 
+/// デバイス情報
 #[repr(C)]
 pub struct BootInfo {
     /// 物理メモリオフセット

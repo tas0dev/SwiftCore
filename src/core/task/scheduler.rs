@@ -263,10 +263,10 @@ pub fn exit_current_task(exit_code: u64) -> ! {
             }
 
             unreachable!("switch_to_thread should never return");
-        } else {
-            // スレッドをキューから削除
-            remove_thread(current_id);
         }
+        
+        // スレッドをキューから削除
+        remove_thread(current_id);
     }
 
     // スレッドがない場合は永久にhaltして待機
