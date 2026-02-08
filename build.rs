@@ -6,6 +6,7 @@ use std::process::Command;
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let apps_dir = manifest_dir.join("src/apps");
+    let services_dir = manifest_dir.join("src/services");
 
     let initfs_dir_core = manifest_dir.join("src/initfs");
     let initfs_dir = initfs_dir_core;
@@ -22,7 +23,12 @@ fn main() {
 
     // appsディレクトリが存在する場合、アプリをビルド
     if apps_dir.is_dir() {
-        build_apps(&apps_dir, &initfs_dir);
+        build_apps(&apps_dir, &initfs_dir, "elf");
+    }
+
+    // servicesディレクトリが存在する場合、サービスをビルド
+    if services_dir.is_dir() {
+        build_apps(&services_dir, &initfs_dir, "service");
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -48,7 +54,7 @@ fn main() {
     }
 }
 
-fn build_apps(apps_dir: &Path, initfs_dir: &Path) {
+fn build_apps(apps_dir: &Path, initfs_dir: &Path, extension: &str) {
     println!("cargo:rerun-if-changed={}", apps_dir.display());
 
     let entries = match fs::read_dir(apps_dir) {
@@ -102,8 +108,7 @@ fn build_apps(apps_dir: &Path, initfs_dir: &Path) {
                         .map(|s| s.to_string_lossy().to_string());
 
                     if let Some(elf_path) = find_built_binary(&target_dir, target_name.as_deref()) {
-                        // initfsにコピー (.elf 拡張子を付ける)
-                        let dest_name = format!("{}.elf", app_name);
+                        let dest_name = format!("{}.{}", app_name, extension);
                         let dest = initfs_dir.join(&dest_name);
                         if let Err(e) = fs::copy(&elf_path, &dest) {
                             println!("cargo:warning=Failed to copy {} to initfs: {}", dest_name, e);

@@ -32,6 +32,12 @@ pub enum SyscallNumber {
     Fork = 14,
     /// Wait (arg0=pid, arg1=status_ptr)
     Wait = 15,
+    /// メモリブレーク (arg0=addr)
+    Brk = 16,
+    /// ファイルシーク (arg0=fd, arg1=offset, arg2=whence)
+    Lseek = 17,
+    /// ファイル情報取得 (arg0=fd, arg1=stat_buf)
+    Fstat = 18,
 }
 
 /// 成功
