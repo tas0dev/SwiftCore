@@ -33,6 +33,9 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, _arg3: u64, _arg4: u6
         x if x == SyscallNumber::Close as u64 => fs::close(arg0),
         x if x == SyscallNumber::Fork as u64 => process::fork(),
         x if x == SyscallNumber::Wait as u64 => process::wait(arg0, arg1),
+        x if x == SyscallNumber::Brk as u64 => process::brk(arg0),
+        x if x == SyscallNumber::Lseek as u64 => fs::seek(arg0, arg1 as i64, arg2),
+        x if x == SyscallNumber::Fstat as u64 => fs::fstat(arg0, arg1),
         _ => ENOSYS,
     }
 }
@@ -42,13 +45,6 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, _arg3: u64, _arg4: u6
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn syscall_interrupt_handler() {
     core::arch::naked_asm!(
-        // int 0x80が呼ばれた時点で、CPUが自動的にスタックにプッシュ:
-        // [rsp+32] SS
-        // [rsp+24] RSP
-        // [rsp+16] RFLAGS
-        // [rsp+8]  CS
-        // [rsp+0]  RIP
-
         // すべてのレジスタを保存（システムコール引数を含む）
         "push rax",      // syscall number
         "push rcx",
@@ -66,65 +62,12 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
         "push r14",
         "push r15",
 
-        // push完了後のスタックレイアウト (rsp からのオフセット):
-        //
-        // int 0x80が呼ばれた時点で、CPUが自動的にスタックにプッシュ（合計40バイト）:
-        //   [R0-8]   RIP
-        //   [R0-16]  CS
-        //   [R0-24]  RFLAGS
-        //   [R0-32]  RSP (ユーザーのrsp)
-        //   [R0-40]  SS  ← R0 = 元のrsp
-        //
-        // その後、ハンドラでpush順: rax, rcx, rdx, rbx, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15
-        //
-        // 最終的なスタックレイアウト (rsp = R0-160):
-        // [rsp+0]   = r15  (最後にpush) [R0-160]
-        // [rsp+8]   = r14              [R0-152]
-        // [rsp+16]  = r13              [R0-144]
-        // [rsp+24]  = r12              [R0-136]
-        // [rsp+32]  = r11              [R0-128]
-        // [rsp+40]  = r10 (arg3)       [R0-120]
-        // [rsp+48]  = r9               [R0-112]
-        // [rsp+56]  = r8  (arg4)       [R0-104]
-        // [rsp+64]  = rdi (arg0)       [R0-96]
-        // [rsp+72]  = rsi (arg1)       [R0-88]
-        // [rsp+80]  = rbp              [R0-80]
-        // [rsp+88]  = rbx              [R0-72]
-        // [rsp+96]  = rdx (arg2)       [R0-64]
-        // [rsp+104] = rcx              [R0-56]
-        // [rsp+112] = rax (syscall #)  [R0-48] (最初にpush)
-        // [rsp+120] = SS               [R0-40]
-        // [rsp+128] = RSP              [R0-32]
-        // [rsp+136] = RFLAGS           [R0-24]
-        // [rsp+144] = CS               [R0-16]
-        // [rsp+152] = RIP              [R0-8]
-
         // カーネルデータセグメントをロード
         // （ds/esはスタックに保存しない。復元時にユーザーセグメントを再設定）
         "mov ax, 0x10",    // カーネルデータセグメント (index=2)
         "mov ds, ax",
         "mov es, ax",
 
-        // デバッグ: スタックダンプ (MS ABI: Arg1 in RCX)
-        // "mov rcx, rsp",      // Arg1: pointer to saved registers
-        // "sub rsp, 32",       // Shadow space (32 bytes)
-        // "call {dump_stack}",
-        // "add rsp, 32",       // Cleanup shadow space
-
-        // システムコール引数を Rust 関数に渡す (Microsoft x64 ABI for UEFI)
-        // 引数: (num, arg0, arg1, arg2, arg3, arg4)
-        // MS ABI: RCX, RDX, R8, R9, Stack, Stack
-        // ユーザー入力 (SysV-like):
-        //   num (RAX)  -> RCX
-        //   arg0 (RDI) -> RDX
-        //   arg1 (RSI) -> R8
-        //   arg2 (RDX) -> R9
-        //   arg3 (R10) -> Stack[rsp+32]
-        //   arg4 (R8)  -> Stack[rsp+40]
-
-        // Stack Frame for Call: 32 (Shadow) + 16 (Args) = 48 bytes
-        // RSP must be 16-byte aligned before CALL.
-        // Current RSP is aligned (160 bytes pushed). 48 is divisible by 16.
         "sub rsp, 48",
 
         // スタック上の引数を設定 (arg3, arg4)
@@ -174,42 +117,8 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
         "iretq",
 
         syscall_handler = sym syscall_handler_rust,
-        // dump_stack = sym dump_syscall_stack,
     );
 }
-
-// デバッグ用にコメントアウト
-/// デバッグ用: スタックの内容をダンプ
-/*
-pub extern "C" fn dump_syscall_stack(stack_ptr: u64) {
-    use crate::debug;
-
-    unsafe {
-        let ptr = stack_ptr as *const u64;
-        debug!("Stack dump (rsp base={:#x}):", stack_ptr);
-        debug!("  [rsp+0]   (r15) = {:#x}", *ptr.offset(0));
-        debug!("  [rsp+8]   (r14) = {:#x}", *ptr.offset(1));
-        debug!("  [rsp+16]  (r13) = {:#x}", *ptr.offset(2));
-        debug!("  [rsp+24]  (r12) = {:#x}", *ptr.offset(3));
-        debug!("  [rsp+32]  (r11) = {:#x}", *ptr.offset(4));
-        debug!("  [rsp+40]  (r10) = {:#x}", *ptr.offset(5));
-        debug!("  [rsp+48]  (r9)  = {:#x}", *ptr.offset(6));
-        debug!("  [rsp+56]  (r8)  = {:#x}", *ptr.offset(7));
-        debug!("  [rsp+64]  (rdi) = {:#x}", *ptr.offset(8));
-        debug!("  [rsp+72]  (rsi) = {:#x}", *ptr.offset(9));
-        debug!("  [rsp+80]  (rbp) = {:#x}", *ptr.offset(10));
-        debug!("  [rsp+88]  (rbx) = {:#x}", *ptr.offset(11));
-        debug!("  [rsp+96]  (rdx) = {:#x}", *ptr.offset(12));
-        debug!("  [rsp+104] (rcx) = {:#x}", *ptr.offset(13));
-        debug!("  [rsp+112] (rax) = {:#x}", *ptr.offset(14));
-        debug!("  [rsp+120] (SS)  = {:#x}", *ptr.offset(15));
-        debug!("  [rsp+128] (rsp) = {:#x}", *ptr.offset(16));
-        debug!("  [rsp+136] (flg) = {:#x}", *ptr.offset(17));
-        debug!("  [rsp+144] (cs)  = {:#x}", *ptr.offset(18));
-        debug!("  [rsp+152] (rip) = {:#x}", *ptr.offset(19));
-    }
-}
-*/
 
 /// システムコールハンドラの Rust 実装
 extern "C" fn syscall_handler_rust(

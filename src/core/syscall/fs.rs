@@ -52,6 +52,13 @@ pub fn seek(_fd: u64, _offset: i64, _whence: u64) -> u64 {
     ENOSYS
 }
 
+/// Fstatシステムコール（未実装）
+///
+/// ファイルの情報を取得する
+pub fn fstat(_fd: u64, _stat_ptr: u64) -> u64 {
+    ENOSYS
+}
+
 /// Statシステムコール（未実装）
 ///
 /// ファイルの情報を取得する
