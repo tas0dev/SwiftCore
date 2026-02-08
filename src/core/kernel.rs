@@ -2,7 +2,7 @@ use crate::result::handle_kernel_error;
 use crate::result::{Kernel, Process};
 use crate::{debug, info, sprintln, vprintln};
 use crate::{init::kinit, task, util, BootInfo, MemoryRegion, Result};
-use crate::init::fs::read;
+use crate::init::fs::{read, entries};
 use crate::syscall::exec::exec_kernel;
 
 const KERNEL_THREAD_STACK_SIZE: usize = 4096 * 8;
@@ -15,6 +15,26 @@ static mut KERNEL_THREAD_STACK: KernelStack = KernelStack([0; KERNEL_THREAD_STAC
 /// カーネルメイン関数
 fn kernel_main() -> ! {
     debug!("Kernel started");
+
+    // .service ファイルを自動実行
+    for entry in entries() {
+        if entry.name.ends_with(".service") {
+            info!("Starting service: {}", entry.name);
+
+            // パスをNULL終端文字列に変換
+            let mut path_buf = [0u8; 64];
+            let name_bytes = entry.name.as_bytes();
+            if name_bytes.len() >= path_buf.len() {
+                crate::warn!("Service name too long: {}", entry.name);
+                continue;
+            }
+            path_buf[..name_bytes.len()].copy_from_slice(name_bytes);
+            path_buf[name_bytes.len()] = 0; // null terminator
+
+            let path_ptr = path_buf.as_ptr() as u64;
+            exec_kernel(path_ptr);
+        }
+    }
 
     let test_elf_path = "test_app.elf\0";
     exec_kernel(test_elf_path.as_ptr() as u64);
