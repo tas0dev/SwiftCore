@@ -90,3 +90,35 @@ pub fn sleep(milliseconds: u64) -> u64 {
 pub fn wait(_pid: u64, _status_ptr: u64) -> u64 {
     ENOSYS
 }
+
+/// FindProcessByNameシステムコール
+/// 
+/// プロセス名からPIDを検索する
+/// 
+/// # 引数
+/// - `name_ptr`: プロセス名のポインタ
+/// - `len`: プロセス名の長さ
+/// 
+/// # 戻り値
+/// 見つかった場合はPID、見つからない場合は0
+pub fn find_process_by_name(name_ptr: u64, len: u64) -> u64 {
+    use crate::task;
+    use core::str;
+    
+    if name_ptr == 0 || len == 0 || len > 64 {
+        return 0;
+    }
+    
+    // ユーザー空間から名前をコピー（安全のため制限付き）
+    // 本来はユーザーメモリチェックが必要
+    let name_slice = unsafe { core::slice::from_raw_parts(name_ptr as *const u8, len as usize) };
+    let name = match str::from_utf8(name_slice) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    
+    // プロセスリストを検索
+    // 注: 本来はロックが必要だが、簡易実装としてそのまま検索
+    // taskモジュールに検索関数を追加するのが望ましい
+    task::find_process_id_by_name(name).map(|pid| pid.as_u64()).unwrap_or(0)
+}

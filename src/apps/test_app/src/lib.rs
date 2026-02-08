@@ -25,6 +25,10 @@ pub enum SyscallNumber {
     Close = 13,
     Fork = 14,
     Wait = 15,
+    Brk = 16,
+    Lseek = 17,
+    Fstat = 18,
+    FindProcessByName = 19,
 }
 
 /// システムコールを呼び出す（引数0個）
@@ -150,6 +154,16 @@ pub fn gettid() -> u64 {
     syscall0(SyscallNumber::GetTid as u64)
 }
 
+/// プロセス名からPIDを検索
+#[inline]
+pub fn find_process_by_name(name: &str) -> u64 {
+    syscall2(
+        SyscallNumber::FindProcessByName as u64, 
+        name.as_ptr() as u64, 
+        name.len() as u64
+    )
+}
+
 /// 指定されたミリ秒数の間スリープする
 #[inline]
 pub fn sleep(milliseconds: u64) {
@@ -178,3 +192,56 @@ pub fn close(fd: u64) -> i64 {
     }
 }
 
+pub struct FsRequest {
+    pub op: u64,
+    pub arg1: u64,
+    pub arg2: u64,
+    pub path: [u8; 128],
+}
+
+impl FsRequest {
+    pub const OP_OPEN: u64 = 1;
+    pub const OP_READ: u64 = 2;
+    pub const OP_WRITE: u64 = 3;
+    pub const OP_CLOSE: u64 = 4;
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FsResponse {
+    pub status: i64,
+    pub len: u64,
+    pub data: [u8; 128],
+}
+
+/// IPCメッセージ送信 (新しいAPIに合わせて修正)
+#[inline]
+pub fn ipc_send(dest_pid: u64, data: &[u8]) -> u64 {
+    syscall3(
+        SyscallNumber::IpcSend as u64,
+        dest_pid,
+        data.as_ptr() as u64,
+        data.len() as u64,
+    )
+}
+
+/// IPCメッセージ受信
+/// 引数: 受信バッファ
+/// 戻り値: (送信元PID, 受信サイズ)。メッセージがない場合は (0, 0) を返す。
+#[inline]
+pub fn ipc_recv(buf: &mut [u8]) -> (u64, usize) {
+    let ret = syscall2(
+        SyscallNumber::IpcRecv as u64,
+        buf.as_mut_ptr() as u64,
+        buf.len() as u64,
+    );
+    
+    // エラーの場合
+    if ret >= 0xffffffffffffff00 { 
+        return (0, 0); 
+    }
+    
+    let sender = ret >> 32;
+    let len = (ret & 0xffffffff) as usize;
+    (sender, len)
+}

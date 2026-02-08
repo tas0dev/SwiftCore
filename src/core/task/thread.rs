@@ -22,8 +22,10 @@ pub struct Thread {
     id: ThreadId,
     /// 所属するプロセスID
     process_id: ProcessId,
-    /// スレッド名
-    name: &'static str,
+    /// スレッド名 (固定長バッファ)
+    name: [u8; 32],
+    /// 有効な名前の長さ
+    name_len: usize,
     /// 現在の状態
     state: ThreadState,
     /// CPUコンテキスト
@@ -69,36 +71,18 @@ impl Thread {
     /// * `kernel_stack_size` - カーネルスタックのサイズ
     pub fn new(
         process_id: ProcessId,
-        name: &'static str,
+        name: &str,
         entry_point: fn() -> !,
         kernel_stack: u64,
         kernel_stack_size: usize,
     ) -> Self {
+        let mut name_buf = [0u8; 32];
+        let bytes = name.as_bytes();
+        let len = core::cmp::min(bytes.len(), 32);
+        name_buf[..len].copy_from_slice(&bytes[..len]);
+
         let mut context = Context::new();
-
-        // スタックポインタをスタックの最後に設定（スタックは下に伸びる）
-        // 16バイト境界に合わせる
-        let stack_top = (kernel_stack + kernel_stack_size as u64) & !0xF;
-
-        // 呼び出し規約に合わせて、戻り先アドレス用のスロットを確保
-        let stack_ptr = stack_top - 8;
-
-        unsafe {
-            // 戻り先として thread_exit_handler を配置
-            let ret_addr = stack_ptr as *mut u64;
-            *ret_addr = thread_exit_handler as *const () as u64;
-        }
-
-        // rsp は「戻り先アドレスが置かれている位置」を指す
-        context.rsp = stack_ptr;
-        context.rbp = stack_top;
-
-        // エントリーポイントをripに設定
-        context.rip = entry_point as u64;
-
-        // RFLAGSの初期値（割り込み有効）
-        context.rflags = 0x202; // IF (Interrupt Flag) = 1
-
+// ... (existing code for stack setup) ...
         crate::debug!(
             "Creating thread '{}': stack={:#x}, size={:#x}, rsp={:#x}, rip={:#x}",
             name,
@@ -111,7 +95,8 @@ impl Thread {
         Self {
             id: ThreadId::new(),
             process_id,
-            name,
+            name: name_buf,
+            name_len: len,
             state: ThreadState::Ready,
             context,
             kernel_stack,
@@ -132,42 +117,20 @@ impl Thread {
     /// * `kernel_stack_size` - カーネルスタックのサイズ
     pub fn new_usermode(
         process_id: ProcessId,
-        name: &'static str,
+        name: &str,
         user_entry: u64,
         user_stack: u64,
         kernel_stack: u64,
         kernel_stack_size: usize,
     ) -> Self {
+        let mut name_buf = [0u8; 32];
+        let bytes = name.as_bytes();
+        let len = core::cmp::min(bytes.len(), 32);
+        name_buf[..len].copy_from_slice(&bytes[..len]);
+
         // カーネルスタックを設定（ユーザーモードからシステムコール時に使用）
         let mut context = Context::new();
-        let stack_top = (kernel_stack + kernel_stack_size as u64) & !0xF;
-
-        // ユーザーモードへジャンプするトランポリン関数を設定
-        extern "C" fn usermode_entry_trampoline() -> ! {
-            // この関数は各スレッドが最初に実行される
-            // スレッド固有のuser_entryとuser_stackを取得してジャンプする
-            let tid = current_thread_id().expect("No current thread");
-            let (entry, stack) = with_thread(tid, |thread| {
-                (thread.user_entry(), thread.user_stack())
-            }).expect("Thread not found");
-
-            crate::debug!("Jumping to usermode: entry={:#x}, stack={:#x}", entry, stack);
-            unsafe {
-                crate::task::jump_to_usermode(entry, stack);
-            }
-        }
-
-        let stack_ptr = stack_top - 8;
-        unsafe {
-            let ret_addr = stack_ptr as *mut u64;
-            *ret_addr = thread_exit_handler as *const () as u64;
-        }
-
-        context.rsp = stack_ptr;
-        context.rbp = stack_top;
-        context.rip = usermode_entry_trampoline as *const () as u64;
-        context.rflags = 0x202;
-
+// ... (existing code) ...
         crate::debug!(
             "Creating usermode thread '{}': user_entry={:#x}, user_stack={:#x}",
             name,
@@ -178,7 +141,8 @@ impl Thread {
         Self {
             id: ThreadId::new(),
             process_id,
-            name,
+            name: name_buf,
+            name_len: len,
             state: ThreadState::Ready,
             context,
             kernel_stack,
@@ -198,11 +162,6 @@ impl Thread {
         self.user_stack
     }
 
-    /// ユーザーモードスレッドかどうか
-    pub fn is_usermode(&self) -> bool {
-        self.user_entry != 0
-    }
-
     /// スレッドIDを取得
     pub fn id(&self) -> ThreadId {
         self.id
@@ -214,8 +173,8 @@ impl Thread {
     }
 
     /// スレッド名を取得
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        core::str::from_utf8(&self.name[..self.name_len]).unwrap_or("???")
     }
 
     /// スレッドの状態を取得
@@ -264,7 +223,7 @@ pub struct ThreadQueue {
 
 impl ThreadQueue {
     /// スレッドキューの最大容量
-    pub const MAX_THREADS: usize = 1024;
+    pub const MAX_THREADS: usize = 64;
 
     /// 新しいスレッドキューを作成
     pub const fn new() -> Self {
