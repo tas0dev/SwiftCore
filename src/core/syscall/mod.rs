@@ -106,10 +106,10 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
         "mov es, ax",
 
         // デバッグ: スタックダンプ (MS ABI: Arg1 in RCX)
-        "mov rcx, rsp",      // Arg1: pointer to saved registers
-        "sub rsp, 32",       // Shadow space (32 bytes)
-        "call {dump_stack}",
-        "add rsp, 32",       // Cleanup shadow space
+        // "mov rcx, rsp",      // Arg1: pointer to saved registers
+        // "sub rsp, 32",       // Shadow space (32 bytes)
+        // "call {dump_stack}",
+        // "add rsp, 32",       // Cleanup shadow space
 
         // システムコール引数を Rust 関数に渡す (Microsoft x64 ABI for UEFI)
         // 引数: (num, arg0, arg1, arg2, arg3, arg4)
@@ -174,12 +174,13 @@ pub unsafe extern "C" fn syscall_interrupt_handler() {
         "iretq",
 
         syscall_handler = sym syscall_handler_rust,
-        dump_stack = sym dump_syscall_stack,
+        // dump_stack = sym dump_syscall_stack,
     );
 }
 
 // デバッグ用にコメントアウト
 /// デバッグ用: スタックの内容をダンプ
+/*
 pub extern "C" fn dump_syscall_stack(stack_ptr: u64) {
     use crate::debug;
 
@@ -208,7 +209,7 @@ pub extern "C" fn dump_syscall_stack(stack_ptr: u64) {
         debug!("  [rsp+152] (rip) = {:#x}", *ptr.offset(19));
     }
 }
-// */
+*/
 
 /// システムコールハンドラの Rust 実装
 extern "C" fn syscall_handler_rust(
