@@ -73,7 +73,7 @@ pub unsafe fn jump_to_usermode(entry: u64, user_stack: u64) -> ! {
         cs = in(reg) user_cs,
         rip = in(reg) entry,
         options(noreturn)
-    );
+    )
 }
 
 /// GDTRを読み取る

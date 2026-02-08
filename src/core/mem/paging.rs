@@ -158,11 +158,11 @@ pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<(
         .as_mut()
         .ok_or(Kernel::Memory(Memory::NotMapped))?;
 
-    let mut allocator_lock = super::frame::FRAME_ALLOCATOR.lock();
+    let mut allocator_lock = frame::FRAME_ALLOCATOR.lock();
     let allocator = allocator_lock
         .as_mut()
-        .ok_or(crate::result::Kernel::Memory(
-            crate::result::Memory::OutOfMemory,
+        .ok_or(Kernel::Memory(
+            Memory::OutOfMemory,
         ))?;
 
     // すでにマップされている場合はアンマップする (Identity Mappingとの競合回避)
@@ -176,7 +176,7 @@ pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<(
     unsafe {
         page_table
             .map_to(page, frame, flags, allocator)
-            .map_err(|_| crate::result::Kernel::Memory(crate::result::Memory::InvalidAddress))?
+            .map_err(|_| Kernel::Memory(Memory::InvalidAddress))?
             .flush();
     }
 
@@ -204,17 +204,17 @@ pub fn map_and_copy_segment(
     memsz: u64,
     src: &[u8],
     writable: bool,
-) -> crate::Result<()> {
+) -> Result<()> {
     use crate::mem::frame;
     use crate::result::{Kernel, Memory};
     use x86_64::structures::paging::PageTableFlags as Flags;
 
-    let phys_off = physical_memory_offset().ok_or(crate::result::Kernel::Memory(
-        crate::result::Memory::NotMapped,
+    let phys_off = physical_memory_offset().ok_or(Kernel::Memory(
+        Memory::NotMapped,
     ))?;
 
     let start = vaddr & !0xfffu64;
-    let end = ((vaddr + memsz + 0xfff) & !0xfffu64) as u64;
+    let end = ((vaddr + memsz + 0xfff) & !0xfffu64);
 
     let mut page_addr = start;
     while page_addr < end {
@@ -259,7 +259,7 @@ pub fn map_and_copy_segment(
         if copy_start < copy_end {
             let src_off = (copy_start - vaddr) as usize;
             let len = (copy_end - copy_start) as usize;
-            let offset_into_page = (copy_start - page_start) as u64;
+            let offset_into_page = (copy_start - page_start);
             let dst_virt_addr = page_start + offset_into_page;
             let dst_virt = dst_virt_addr as *mut u8;
             crate::debug!(
@@ -276,7 +276,7 @@ pub fn map_and_copy_segment(
             let zero_start = core::cmp::max(page_start, vaddr + filesz);
             let zero_end = core::cmp::min(page_end, vaddr + memsz);
             if zero_start < zero_end {
-                let offset_into_page = (zero_start - page_start) as u64;
+                let offset_into_page = (zero_start - page_start);
                 let dst_virt_addr = page_start + offset_into_page;
                 let dst_virt = dst_virt_addr as *mut u8;
                 let len = (zero_end - zero_start) as usize;
@@ -296,8 +296,9 @@ pub fn map_and_copy_segment(
                 let new_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
                 crate::debug!("Updating page {:#x} to read-only (flags={:?})", page_addr, new_flags);
                 unsafe {
-                    if let Err(e) = pt.update_flags(page, new_flags) {
-                        crate::warn!("Failed to update flags for page {:#x}: {:?}", page_addr, e);
+                    match pt.update_flags(page, new_flags) {
+                        Ok(flush) => flush.flush(),
+                        Err(e) => crate::warn!("Failed to update flags for page {:#x}: {:?}", page_addr, e),
                     }
                 }
             }
