@@ -22,10 +22,21 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
     }
     let path = provided_path.unwrap_or("/hello.bin");
 
-    crate::debug!("exec_kernel: path={}", path);
+    exec_internal(path, None)
+}
+
+/// 名前を指定してカーネル内から実行可能ファイルを実行する（カーネル内部用）
+pub fn exec_kernel_with_name(path: &str, name: &str) -> u64 {
+    exec_internal(path, Some(name))
+}
+
+fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
+    let process_name = name_override.unwrap_or(path);
+    crate::debug!("exec: path={}, name={}", path, process_name);
 
     if let Some(data) = crate::init::fs::read(path) {
         let entry = elf_loader::entry_point(data).unwrap_or(0);
+        // ... (ELF loading and process creation logic remains same) ...
         crate::debug!("ELF entry: {:#x}", entry);
 
         if let Some(eh) = elf_loader::parse_elf_header(data) {
@@ -67,7 +78,7 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
         crate::debug!("User stack allocated successfully");
 
         // Create a process and a usermode thread
-        let proc = crate::task::Process::new(path, crate::task::PrivilegeLevel::User, None, 0);
+        let proc = crate::task::Process::new(process_name, crate::task::PrivilegeLevel::User, None, 0);
         let pid = proc.id();
         if crate::task::add_process(proc).is_none() {
             return crate::syscall::types::EINVAL;
@@ -84,9 +95,10 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
         };
 
         // ユーザーモードスレッドを作成
+        // スレッド名もプロセス名に合わせて更新
         let thread = crate::task::Thread::new_usermode(
             pid,
-            path,
+            process_name,
             entry,
             stack_top,
             kstack,
@@ -98,7 +110,7 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
             return crate::syscall::types::EINVAL;
         }
 
-        crate::debug!("exec: created usermode process '{}' (pid={:?}, entry={:#x})", path, pid, entry);
+        crate::debug!("exec: created usermode process '{}' (pid={:?}, entry={:#x})", process_name, pid, entry);
 
         return pid.as_u64();
     }
