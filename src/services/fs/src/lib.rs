@@ -180,24 +180,58 @@ pub fn close(fd: u64) -> i64 {
 
 /// IPCメッセージ送信
 #[inline]
-pub fn ipc_send(dest_pid: u64, value: u64) -> u64 {
-    syscall2(SyscallNumber::IpcSend as u64, dest_pid, value)
+pub fn ipc_send(dest_pid: u64, data: &[u8]) -> u64 {
+    syscall3(
+        SyscallNumber::IpcSend as u64,
+        dest_pid,
+        data.as_ptr() as u64,
+        data.len() as u64,
+    )
 }
 
 /// IPCメッセージ受信
-/// 戻り値: (送信元PID, 値)。メッセージがない場合は (0, 0) を返す。
+/// 引数: 受信バッファ
+/// 戻り値: (送信元PID, 受信サイズ)。メッセージがない場合は (0, 0) を返す。
 #[inline]
-pub fn ipc_recv() -> (u64, u64) {
-    let mut sender: u64 = 0;
-    // カーネルのエラー定数 EAGAIN を考慮すべきだが、ここではエラーならとりあえず (0,0) とする
-    let ret = syscall1(SyscallNumber::IpcRecv as u64, &mut sender as *mut u64 as u64);
+pub fn ipc_recv(buf: &mut [u8]) -> (u64, usize) {
+    let ret = syscall2(
+        SyscallNumber::IpcRecv as u64,
+        buf.as_mut_ptr() as u64,
+        buf.len() as u64,
+    );
 
     // エラーの場合（通常は大きな整数として返ってくる）
     if ret >= 0xffffffffffffff00 {
         return (0, 0);
     }
 
-    (sender, ret)
+    let sender = ret >> 32;
+    let len = (ret & 0xffffffff) as usize;
+    (sender, len)
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FsRequest {
+    pub op: u64,
+    pub arg1: u64,
+    pub arg2: u64,
+    pub path: [u8; 128],
+}
+
+impl FsRequest {
+    pub const OP_OPEN: u64 = 1;
+    pub const OP_READ: u64 = 2;
+    pub const OP_WRITE: u64 = 3;
+    pub const OP_CLOSE: u64 = 4;
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FsResponse {
+    pub status: i64,
+    pub len: u64,
+    pub data: [u8; 128],
 }
 
 /// 64ビット整数を出力（デバッグ用）
