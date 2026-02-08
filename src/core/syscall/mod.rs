@@ -36,6 +36,7 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, _arg3: u64, _arg4: u6
         x if x == SyscallNumber::Brk as u64 => process::brk(arg0),
         x if x == SyscallNumber::Lseek as u64 => fs::seek(arg0, arg1 as i64, arg2),
         x if x == SyscallNumber::Fstat as u64 => fs::fstat(arg0, arg1),
+        x if x == SyscallNumber::FindProcessByName as u64 => process::find_process_by_name(arg0, arg1),
         _ => ENOSYS,
     }
 }

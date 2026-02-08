@@ -38,6 +38,8 @@ pub enum SyscallNumber {
     Lseek = 17,
     /// ファイル情報取得 (arg0=fd, arg1=stat_buf)
     Fstat = 18,
+    /// 名前からプロセスIDを検索 (arg0=name_ptr, arg1=len)
+    FindProcessByName = 19,
 }
 
 /// 成功

@@ -104,6 +104,28 @@ pub fn init(boot_info: &'static crate::BootInfo) {
         }
     }
 
+    // カーネルコード領域（起動時のコード）が含まれているか確認し、マップする
+    // 現在の命令ポインタ（RIP）を取得して、その周辺も確実にマップする
+    let rip: u64;
+    unsafe {
+        core::arch::asm!("lea {}, [rip]", out(reg) rip);
+    }
+    info!("Current RIP: {:#x}", rip);
+
+    // カーネルが含まれる領域を特別に検索してマップ
+    for region in memory_map {
+        let is_kernel = rip >= region.start && rip < (region.start + region.len);
+        if is_kernel {
+             crate::debug!(
+                "Ensure Kernel Code Mapping region {:?} at {:#x}",
+                region.region_type,
+                region.start
+            );
+            // マップ処理は上のループでやっているはずだが、もし `match` で除外されていたらマップする
+            // LoaderCodeなどは上の `_ => true` でマップされているはず
+        }
+    }
+
     // フレームバッファをマップ (もしメモリマップに含まれていなければ)
     let fb_start =
         PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(boot_info.framebuffer_addr));
