@@ -4,16 +4,18 @@ use super::{EAGAIN, EINVAL};
 
 const MAX_THREADS: usize = crate::task::ThreadQueue::MAX_THREADS;
 const MAILBOX_CAP: usize = 64;
+const MAX_MSG_SIZE: usize = 256;
 
 #[derive(Debug, Clone, Copy)]
-struct Message {
+pub struct Message {
     from: u64,
-    value: u64,
+    len: usize,
+    data: [u8; MAX_MSG_SIZE],
 }
 
 impl Message {
     const fn empty() -> Self {
-        Self { from: 0, value: 0 }
+        Self { from: 0, len: 0, data: [0; MAX_MSG_SIZE] }
     }
 }
 
@@ -59,8 +61,16 @@ impl Mailbox {
 static MAILBOXES: SpinLock<[Mailbox; MAX_THREADS]> = SpinLock::new([Mailbox::new(); MAX_THREADS]);
 
 /// IPC送信
-pub fn send(dest_thread_id: u64, value: u64) -> u64 {
+/// arg0: dest_thread_id
+/// arg1: buf_ptr
+/// arg2: len
+pub fn send(dest_thread_id: u64, buf_ptr: u64, len: u64) -> u64 {
     if dest_thread_id == 0 {
+        return EINVAL;
+    }
+
+    let len = len as usize;
+    if len > MAX_MSG_SIZE {
         return EINVAL;
     }
 
@@ -74,14 +84,21 @@ pub fn send(dest_thread_id: u64, value: u64) -> u64 {
         return EINVAL;
     }
 
+    // データをユーザー空間からコピー
+    let mut data = [0u8; MAX_MSG_SIZE];
+    if len > 0 && buf_ptr != 0 {
+        let src_slice = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
+        data[..len].copy_from_slice(src_slice);
+    }
+
+    let msg = Message {
+        from: sender,
+        len,
+        data,
+    };
+
     let mut boxes = MAILBOXES.lock();
-    if boxes[idx]
-        .push(Message {
-            from: sender,
-            value,
-        })
-        .is_err()
-    {
+    if boxes[idx].push(msg).is_err() {
         return EAGAIN;
     }
 
@@ -89,7 +106,10 @@ pub fn send(dest_thread_id: u64, value: u64) -> u64 {
 }
 
 /// IPC受信
-pub fn recv(sender_ptr: u64) -> u64 {
+/// arg0: buf_ptr
+/// arg1: len
+/// 戻り値: (sender_id << 32) | received_len
+pub fn recv(buf_ptr: u64, max_len: u64) -> u64 {
     let receiver = match crate::task::current_thread_id() {
         Some(id) => id.as_u64(),
         None => return EINVAL,
@@ -105,12 +125,14 @@ pub fn recv(sender_ptr: u64) -> u64 {
         Some(msg) => msg,
         None => return EAGAIN,
     };
+    drop(boxes); // ロック解除
 
-    if sender_ptr != 0 {
-        unsafe {
-            (sender_ptr as *mut u64).write_volatile(msg.from);
-        }
+    let copy_len = core::cmp::min(msg.len, max_len as usize);
+    if copy_len > 0 && buf_ptr != 0 {
+        let dest_slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, copy_len) };
+        dest_slice.copy_from_slice(&msg.data[..copy_len]);
     }
 
-    msg.value
+    // 上位32bitに送信元ID、下位32bitに長さ
+    ((msg.from as u64) << 32) | (copy_len as u64)
 }

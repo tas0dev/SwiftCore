@@ -1,33 +1,152 @@
 #![no_std]
 #![no_main]
 
+#![no_std]
+#![no_main]
+
 extern crate fs_service;
 use core::panic::PanicInfo;
+use fs_service::{print, print_u64, ipc_recv, ipc_send, yield_now, FsRequest, FsResponse};
 
-use fs_service::{print, print_u64, ipc_recv, yield_now};
+// --- RamFS Definitions ---
+const MAX_FILES: usize = 4;
+const FILE_SIZE: usize = 512;
+
+#[derive(Clone, Copy)]
+struct VirtualFile {
+    used: bool,
+    name: [u8; 32],
+    name_len: usize,
+    data: [u8; FILE_SIZE],
+    size: usize,
+}
+
+impl VirtualFile {
+    const fn new() -> Self {
+        Self { used: false, name: [0; 32], name_len: 0, data: [0; FILE_SIZE], size: 0 }
+    }
+}
+
+static mut FILES: [VirtualFile; MAX_FILES] = [VirtualFile::new(); MAX_FILES];
 
 /// FS Service Entry Point
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     print("[FS] Service Started.\n");
-    print("[FS] Waiting for IPC messages...\n");
+
+    // 初期ファイル作成
+    unsafe {
+        FILES[0].used = true;
+        let name = "readme.txt";
+        // 文字列コピー
+        for (i, b) in name.bytes().enumerate() {
+            if i < 32 { FILES[0].name[i] = b; }
+        }
+        FILES[0].name_len = name.len();
+
+        let content = "Welcome to SwiftCore OS!\nThis file is served by fs.service from RamFS.\n";
+        for (i, b) in content.bytes().enumerate() {
+            if i < FILE_SIZE {
+                FILES[0].data[i] = b;
+            }
+        }
+        FILES[0].size = content.len();
+    }
+
+    print("[FS] RamFS Initialized. 'readme.txt' created.\n");
+    print("[FS] Waiting for requests...\n");
+
+    let mut recv_buf = [0u8; 256];
 
     loop {
-        let (sender, val) = ipc_recv();
-        if sender != 0 {
-            print("[FS] MSG from ");
+        let (sender, len) = ipc_recv(&mut recv_buf);
+        if sender != 0 && len >= core::mem::size_of::<FsRequest>() {
+            // 受信データをリクエストとして解釈
+            let req: FsRequest = unsafe { core::ptr::read(recv_buf.as_ptr() as *const _) };
+
+            print("[FS] REQ op=");
+            print_u64(req.op);
+            print(" from PID=");
             print_u64(sender);
-            print(": val=");
-            print_u64(val);
             print("\n");
 
-            // コマンド処理（仮実装）
-            match val {
-                1 => { print("[FS] Ping received\n"); },
-                _ => { print("[FS] Unknown command\n"); },
+            let mut resp = FsResponse { status: -1, len: 0, data: [0; 128] };
+
+            match req.op {
+                FsRequest::OP_OPEN => {
+                    print("[FS] OP_OPEN\n");
+                    let mut found_idx: i64 = -1;
+
+                    unsafe {
+                        for i in 0..MAX_FILES {
+                            if FILES[i].used {
+                                // 簡易比較
+                                let mut curr_len = 0;
+                                while curr_len < 32 && FILES[i].name[curr_len] != 0 { curr_len += 1; }
+
+                                // リクエストのパスと比較
+                                let mut match_len = 0;
+                                while match_len < 32 && match_len < curr_len {
+                                    if req.path[match_len] != FILES[i].name[match_len] {
+                                        break;
+                                    }
+                                    match_len += 1;
+                                }
+
+                                // 完全一致チェック
+                                if match_len == curr_len {
+                                     // パスの終端チェック
+                                     if match_len >= 128 || req.path[match_len] == 0 {
+                                         found_idx = i as i64;
+                                         break;
+                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    resp.status = found_idx; // FDとしてインデックスを返す
+                    if found_idx == -1 {
+                        print("[FS] ERROR: File not found\n");
+                    } else {
+                        print("[FS] Success: FD=");
+                        print_u64(found_idx as u64);
+                        print("\n");
+                    }
+                },
+                FsRequest::OP_READ => {
+                     // arg1=fd, arg2=len
+                     let fd = req.arg1 as usize;
+                     let read_len = req.arg2 as usize;
+
+                     if fd < MAX_FILES && unsafe { FILES[fd].used } {
+                         let file_size = unsafe { FILES[fd].size };
+                         let actual_len = if read_len < 128 { read_len } else { 128 }; // レスポンスバッファ制限
+                         let actual_len = if actual_len < file_size { actual_len } else { file_size };
+
+                         unsafe {
+                             for i in 0..actual_len {
+                                 resp.data[i] = FILES[fd].data[i];
+                             }
+                         }
+                         resp.len = actual_len as u64;
+                         resp.status = actual_len as i64;
+                     } else {
+                         resp.status = -9; // EBADF
+                     }
+                },
+                _ => {
+                    print("[FS] Unknown OP\n");
+                }
+            }
+
+            // レスポンス送信
+            let resp_slice = unsafe {
+                core::slice::from_raw_parts(&resp as *const _ as *const u8, core::mem::size_of::<FsResponse>())
             };
+            ipc_send(sender, resp_slice);
+
         } else {
-            // メッセージがない場合はイールドする
             yield_now();
         }
     }
