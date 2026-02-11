@@ -43,7 +43,7 @@ cp "$EFI_FILE" "$TEMP_DIR/esp/EFI/BOOT/BOOTX64.EFI"
 exec qemu-system-x86_64 \
     -bios "$OVMF" \
     -drive format=raw,file=fat:rw:"$TEMP_DIR/esp" \
-    -drive id=disk0,file=target/swiftCore.img,format=raw,if=ide,index=0,media=disk \
+    -drive id=disk0,file=target/swiftCore.img,format=raw,if=ide,index=1,media=disk \
     -net none \
     -m 512M \
     -serial stdio \
