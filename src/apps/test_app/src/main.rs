@@ -3,8 +3,8 @@
 
 extern crate test_app;
 use core::panic::PanicInfo;
-
-use test_app::{exit, find_process_by_name, ipc_recv, ipc_send, print, sleep, yield_now, FsRequest, FsResponse};
+use core::mem::size_of;
+use test_app::{exit, find_process_by_name, ipc_recv, ipc_send, log, print, sleep, yield_now, FsRequest, FsResponse};
 
 /// ユーザーアプリのエントリーポイント
 #[no_mangle]
@@ -49,7 +49,7 @@ pub extern "C" fn _start() -> ! {
     }
     
     let req_slice = unsafe {
-        core::slice::from_raw_parts(&req as *const _ as *const u8, core::mem::size_of::<FsRequest>())
+        core::slice::from_raw_parts(&req as *const _ as *const u8, size_of::<FsRequest>())
     };
     
     ipc_send(fs_pid, req_slice);
@@ -61,7 +61,7 @@ pub extern "C" fn _start() -> ! {
     // タイムアウト付き受信（簡易）
     for _ in 0..10 {
         let (sender, len) = ipc_recv(&mut resp_buf);
-        if sender == fs_pid && len >= core::mem::size_of::<FsResponse>() {
+        if sender == fs_pid && len >= size_of::<FsResponse>() {
             let resp: FsResponse = unsafe { core::ptr::read(resp_buf.as_ptr() as *const _) };
             fd = resp.status;
             break;
@@ -84,13 +84,13 @@ pub extern "C" fn _start() -> ! {
     req.arg2 = 128;       // Length
     
     let req_slice = unsafe {
-        core::slice::from_raw_parts(&req as *const _ as *const u8, core::mem::size_of::<FsRequest>())
+        core::slice::from_raw_parts(&req as *const _ as *const u8, size_of::<FsRequest>())
     };
     ipc_send(fs_pid, req_slice);
     
     for _ in 0..10 {
         let (sender, len) = ipc_recv(&mut resp_buf);
-        if sender == fs_pid && len >= core::mem::size_of::<FsResponse>() {
+        if sender == fs_pid && len >= size_of::<FsResponse>() {
             let resp: FsResponse = unsafe { core::ptr::read(resp_buf.as_ptr() as *const _) };
             if resp.status > 0 {
                 print("Read success:\n---\n");
@@ -134,12 +134,15 @@ fn print_u64(mut num: u64) {
         let s = core::str::from_utf8(&buf[i..i+1]).unwrap();
         print(s);
     }
+    
+    log("test_log", 8, 2);
 }
 
 /// パニックハンドラ
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    print("PANIC in user space!\n");
+    log("panic!", 6, 0);
+
     loop {
         yield_now();
     }

@@ -40,6 +40,8 @@ pub enum SyscallNumber {
     Fstat = 18,
     /// 名前からプロセスIDを検索 (arg0=name_ptr, arg1=len)
     FindProcessByName = 19,
+    /// カーネルログを出力する（arg0=msg_ptr, arg1=len, arg2=level）
+    Log = 20,
 }
 
 /// 成功
