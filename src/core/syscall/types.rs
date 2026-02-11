@@ -42,6 +42,10 @@ pub enum SyscallNumber {
     FindProcessByName = 19,
     /// カーネルログを出力する（arg0=msg_ptr, arg1=len, arg2=level）
     Log = 20,
+    /// I/Oポート入力 (arg0=port, arg1=size) -> value
+    PortIn = 21,
+    /// I/Oポート出力 (arg0=port, arg1=value, arg2=size)
+    PortOut = 22,
 }
 
 /// 成功

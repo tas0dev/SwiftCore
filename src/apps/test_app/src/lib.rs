@@ -30,6 +30,8 @@ pub enum SyscallNumber {
     Fstat = 18,
     FindProcessByName = 19,
     Log = 20,
+    PortIn = 21,
+    PortOut = 22,
 }
 
 /// システムコールを呼び出す（引数0個）

@@ -25,6 +25,9 @@ pub enum SyscallNumber {
     Close = 13,
     Fork = 14,
     Wait = 15,
+    Log = 20,
+    PortIn = 21,
+    PortOut = 22,
 }
 
 /// システムコールを呼び出す（引数0個）
