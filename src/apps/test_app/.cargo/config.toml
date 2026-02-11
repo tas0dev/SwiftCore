@@ -1,5 +1,6 @@
 [build]
 target-dir = "target"
+target = "x86_64-swiftcore.json"
 
 [target.x86_64-swiftcore]
 rustflags = ["-C", "link-arg=-Tlinker.ld"]

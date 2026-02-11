@@ -1,149 +1,65 @@
 #![no_std]
 #![no_main]
 
-extern crate test_app;
+#[macro_use]
+extern crate swiftcore_std;
+extern crate alloc;
+
 use core::panic::PanicInfo;
-use core::mem::size_of;
-use test_app::{exit, find_process_by_name, ipc_recv, ipc_send, log, print, sleep, yield_now, FsRequest, FsResponse};
+use swiftcore_std::{process, thread};
+use swiftcore_std::fs::File;
+use alloc::string::String;
 
 /// ユーザーアプリのエントリーポイント
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    print("TestApp Started.\n");
-
-    // FSサービスのPIDを検索
-    print("Looking for fs.service...\n");
-    let mut fs_pid = 0;
-    for _ in 0..5 {
-        fs_pid = find_process_by_name("core.service.fs");
-        if fs_pid != 0 {
-            break;
-        }
-        sleep(100);
-    }
-
-    if fs_pid == 0 {
-        print("Error: fs.service not found.\n");
-        exit(1);
-    }
-
-    print("Found fs.service at PID: ");
-    print_u64(fs_pid);
-    print("\n");
+    swiftcore_std::heap::init();
+    println!("TestApp Started with swift_std (High Level API)!");
 
     // ファイルを開く
     let filename = "readme.txt";
-    print("Opening ");
-    print(filename);
-    print("...\n");
+    println!("Opening {}...", filename);
 
-    let mut req = FsRequest {
-        op: FsRequest::OP_OPEN,
-        arg1: 0,
-        arg2: 0,
-        path: [0; 128],
-    };
-    
-    for (i, b) in filename.bytes().enumerate() {
-        if i < 128 { req.path[i] = b; }
-    }
-    
-    let req_slice = unsafe {
-        core::slice::from_raw_parts(&req as *const _ as *const u8, size_of::<FsRequest>())
-    };
-    
-    ipc_send(fs_pid, req_slice);
-    
-    // レスポンス受信
-    let mut resp_buf = [0u8; 256];
-    let mut fd: i64 = -1;
-    
-    // タイムアウト付き受信（簡易）
-    for _ in 0..10 {
-        let (sender, len) = ipc_recv(&mut resp_buf);
-        if sender == fs_pid && len >= size_of::<FsResponse>() {
-            let resp: FsResponse = unsafe { core::ptr::read(resp_buf.as_ptr() as *const _) };
-            fd = resp.status;
-            break;
-        }
-        yield_now();
-    }
-    
-    if fd < 0 {
-        print("Failed to open file.\n");
-        exit(1);
-    }
-    
-    print("File opened. FD=");
-    print_u64(fd as u64);
-    print("\nReading content...\n");
-    
-    // 内容を読み込む
-    req.op = FsRequest::OP_READ;
-    req.arg1 = fd as u64; // FD
-    req.arg2 = 128;       // Length
-    
-    let req_slice = unsafe {
-        core::slice::from_raw_parts(&req as *const _ as *const u8, size_of::<FsRequest>())
-    };
-    ipc_send(fs_pid, req_slice);
-    
-    for _ in 0..10 {
-        let (sender, len) = ipc_recv(&mut resp_buf);
-        if sender == fs_pid && len >= size_of::<FsResponse>() {
-            let resp: FsResponse = unsafe { core::ptr::read(resp_buf.as_ptr() as *const _) };
-            if resp.status > 0 {
-                print("Read success:\n---\n");
-                let data_len = resp.len as usize;
-                if data_len > 0 && data_len <= 128 {
-                    let s = core::str::from_utf8(&resp.data[..data_len]).unwrap_or("Invallid UTF-8");
-                    print(s);
+    // Std-like API usage
+    match File::open(filename) {
+        Ok(mut file) => {
+            println!("File opened successfully.");
+
+            let mut content = String::new();
+            match file.read_to_string(&mut content) {
+                Ok(len) => {
+                    println!("Read {} bytes:\n---", len);
+                    println!("{}", content);
+                    println!("---");
+                },
+                Err(e) => {
+                     println!("Failed to read file: {:?}", e);
                 }
-                print("\n---\n");
-            } else {
-                print("Read failed.\n");
             }
-            break;
+
+            // Write test
+            let msg = "\nAppended via File API!";
+            match file.write(msg.as_bytes()) {
+                 Ok(_) => println!("Successfully appended message."),
+                 Err(_) => println!("Failed to append message."),
+            }
+
+            // Drop will close the file
+        },
+        Err(e) => {
+            println!("Failed to open file: {:?}", e);
         }
-        yield_now();
     }
     
-    print("TestApp finished.\n");
-    exit(0);
-}
-
-/// 数値を文字列として出力（簡易実装）
-fn print_u64(mut num: u64) {
-    if num == 0 {
-        print("0");
-        return;
-    }
-
-    let mut buf = [0u8; 20];
-    let mut i = 0;
-
-    while num > 0 {
-        buf[i] = (num % 10) as u8 + b'0';
-        num /= 10;
-        i += 1;
-    }
-
-    // 逆順で出力
-    while i > 0 {
-        i -= 1;
-        let s = core::str::from_utf8(&buf[i..i+1]).unwrap();
-        print(s);
-    }
-    
-    log("test_log", 8, 2);
+    println!("TestApp finished.");
+    process::exit(0);
 }
 
 /// パニックハンドラ
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    log("panic!", 6, 0);
-
+fn panic(info: &PanicInfo) -> ! {
+    println!("PANIC in user space: {}", info);
     loop {
-        yield_now();
+        thread::yield_now();
     }
 }
