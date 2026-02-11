@@ -1,18 +1,19 @@
 #![no_std]
 #![no_main]
 
-#[macro_use]
-extern crate std;
 extern crate alloc;
-
-use core::panic::PanicInfo;
-use std::{process, thread};
-use std::fs::File;
 use alloc::string::String;
+use std::fs::File;
+use std::{println, process};
 
-/// ユーザーアプリのエントリーポイント
 #[no_mangle]
-pub extern "C" fn _start() -> ! {
+pub extern "C" fn _start() {
+    main();
+    process::exit(0);
+}
+
+#[no_mangle]
+pub extern "C" fn main() {
     std::heap::init();
     println!("TestApp Started with swift_std (High Level API)!");
 
@@ -52,14 +53,4 @@ pub extern "C" fn _start() -> ! {
     }
     
     println!("TestApp finished.");
-    process::exit(0);
-}
-
-/// パニックハンドラ
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    println!("PANIC in user space: {}", info);
-    loop {
-        thread::yield_now();
-    }
 }
