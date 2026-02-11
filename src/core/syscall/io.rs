@@ -3,6 +3,9 @@
 use crate::util::console;
 use core::fmt::Write;
 use core::slice;
+use crate::{info, warn, debug, error, Kernel};
+use crate::MemoryType::KernelStack;
+use crate::util::log::set_level;
 use super::types::{EBADF, EFAULT, SUCCESS};
 
 /// 標準出力のファイルディスクリプタ
@@ -87,4 +90,36 @@ pub fn write(fd: u64, buf_ptr: u64, len: u64) -> u64 {
 pub fn read(_fd: u64, _buf_ptr: u64, _len: u64) -> u64 {
     // TODO: キーボード入力やその他の入力ソースからの読み込みを実装
     super::types::ENOSYS
+}
+
+/// Logシステムコール
+///
+/// カーネルログにメッセージを書き込む
+/// # 引数
+/// msg: メッセージ
+/// len: メッセージの長さ
+/// level: ログレベル（0=ERROR、1=WARNING、2=INFO、3=DEBUG）
+///
+/// # 戻り値
+/// 成功時はSUCCESS、エラー時はエラーコード
+pub fn log(msg: u64, len: u64, level: u64) -> u64 {
+    if msg == 0 || len == 0 {
+        return super::types::EINVAL
+    }
+
+    let slice = unsafe { slice::from_raw_parts(msg as *const u8, len as usize) };
+    let msg = match core::str::from_utf8(slice) {
+        Ok(s) => s,
+        Err(_) => return super::types::EINVAL,
+    };
+
+    match level {
+        0 => error!("{}", msg),
+        1 => warn!("{}", msg),
+        2 => info!("{}", msg),
+        3 => debug!("{}", msg),
+        _ => return super::types::EINVAL,
+    }
+
+    SUCCESS
 }
