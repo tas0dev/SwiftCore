@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "test_app"
+name = "test_service"
 version = "0.1.0"

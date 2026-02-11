@@ -9,7 +9,9 @@ echo "Building user application"
 
 cargo build --release --target=x86_64-swiftcore.json
 
-cp target/x86_64-swiftcore/release/test_app ../initfs/test.elf
+# Copy to initfs directory
+mkdir -p ../../../initfs
+cp target/x86_64-swiftcore/release/test_app ../../../initfs/test_app.elf
 
 echo "Built successfully"
-ls -lh ../initfs/test.elf
+ls -lh ../../../initfs/test_app.elf
