@@ -29,6 +29,7 @@ pub enum SyscallNumber {
     Lseek = 17,
     Fstat = 18,
     FindProcessByName = 19,
+    Log = 20,
 }
 
 /// システムコールを呼び出す（引数0個）
@@ -192,6 +193,8 @@ pub fn close(fd: u64) -> i64 {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct FsRequest {
     pub op: u64,
     pub arg1: u64,
@@ -244,4 +247,14 @@ pub fn ipc_recv(buf: &mut [u8]) -> (u64, usize) {
     let sender = ret >> 32;
     let len = (ret & 0xffffffff) as usize;
     (sender, len)
+}
+
+/// カーネルにログを書き込む
+/// # 引数
+/// - `msg_ptr`: ログメッセージ
+/// - `len`: メッセージの長さ
+/// - `level`: ログレベル（0=ERROR、1=WARNING、2=INFO、3=DEBUG）
+#[inline]
+pub fn log(msg_ptr: &str, len: u64, level: u64) -> u64 {
+    syscall3(SyscallNumber::Log as u64, msg_ptr.as_ptr() as u64, len, level)
 }

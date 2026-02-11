@@ -127,3 +127,22 @@ pub fn close(fd: u64) -> i64 {
         ret as i64
     }
 }
+
+/// カーネルにログを書き込む
+///
+/// # 引数
+/// - `msg`: ログメッセージ
+/// - `len`: メッセージの長さ
+/// - `level`: ログレベル（0=ERROR、1=WARNING、2=INFO、3=DEBUG）
+///
+/// # 戻り値
+/// SUCCESSまたはエラーコード
+#[inline]
+pub fn log(msg: u64, len: u64, level: u64) -> u64 {
+    syscall3(
+        SyscallNumber::Log as u64,
+        msg,
+        len,
+        level,
+    )
+}

@@ -17,6 +17,7 @@ test = false
 bench = false
 
 [dependencies]
+log = "0.4.29"
 
 [profile.dev]
 panic = "abort"
