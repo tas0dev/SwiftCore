@@ -6,4 +6,6 @@
 *.bin
 *.elf
 *.service
+*.lock
+
 /src/initfs/
