@@ -3,15 +3,31 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_NAME=$(basename "$SCRIPT_DIR")
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
 cd "$SCRIPT_DIR"
 
-echo "Building user application"
+echo "Building user application: $APP_NAME"
 
-cargo build --release --target=x86_64-swiftcore.json
+export RUST_TARGET_PATH="$PROJECT_ROOT/src/lib"
+export RUSTFLAGS="-C link-arg=-L$SCRIPT_DIR -C link-arg=-T$SCRIPT_DIR/linker.ld"
 
-# Copy to initfs directory (create if not exists)
-mkdir -p ../../initfs
-cp target/x86_64-swiftcore/release/fs_service ../../initfs/fs.service
+cargo build --release \
+    --target="$RUST_TARGET_PATH/x86_64-swiftcore.json" \
+    -Z build-std=core,alloc \
+    --package "$APP_NAME"
 
-echo "Built successfully"
-ls -lh ../../initfs/fs.service
+INITFS_DIR="$PROJECT_ROOT/initfs"
+mkdir -p "$INITFS_DIR"
+
+SOURCE_BIN="target/x86_64-swiftcore/release/$APP_NAME"
+
+if [ -f "$SOURCE_BIN" ]; then
+    cp "$SOURCE_BIN" "$INITFS_DIR/$APP_NAME.elf"
+    echo "Built successfully: $INITFS_DIR/$APP_NAME.elf"
+    ls -lh "$INITFS_DIR/$APP_NAME.elf"
+else
+    echo "Error: Binary $SOURCE_BIN not found."
+    exit 1
+fi

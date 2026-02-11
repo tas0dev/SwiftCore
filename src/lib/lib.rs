@@ -14,8 +14,15 @@ pub mod heap;
 pub mod ipc;
 
 #[alloc_error_handler]
+#[no_mangle]
 pub fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
     panic!("allocation error: {:?}", layout)
+}
+
+#[panic_handler]
+fn panic(info: &panic::PanicInfo) -> ! {
+    _print(format_args!("\nPANIC: {}\n", info));
+    loop {}
 }
 
 pub use io::{_print};
