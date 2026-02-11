@@ -67,75 +67,37 @@ pub unsafe extern "C" fn switch_context(old_context: *mut Context, new_context: 
         // 現在のコンテキストを保存
         // 呼び出し元に戻った後の rsp を保存（ret 相当）
         "lea rax, [rsp + 0x08]",
-        // System V AMD64 ABI (Rust default on x86_64-unknown-none):
-        // 第1引数 (old_context) = rdi
-        // 第2引数 (new_context) = rsi
-        "mov [rdi + 0x00], rax", // rsp
-        "mov [rdi + 0x08], rbp", // rbp
-        "mov [rdi + 0x10], rbx", // rbx
-        "mov [rdi + 0x18], r12", // r12
-        "mov [rdi + 0x20], r13", // r13
-        "mov [rdi + 0x28], r14", // r14
-        "mov [rdi + 0x30], r15", // r15
-        "mov [rdi + 0x38], rdi", // rdi (保存)
-        "mov [rdi + 0x40], rsi", // rsi (保存)
+        // Microsoft x64 ABI (used by x86_64-unknown-uefi):
+        // 第1引数 (old_context) = rcx
+        // 第2引数 (new_context) = rdx
+        "mov [rcx + 0x00], rax", // rsp
+        "mov [rcx + 0x08], rbp", // rbp
+        "mov [rcx + 0x10], rbx", // rbx
+        "mov [rcx + 0x18], r12", // r12
+        "mov [rcx + 0x20], r13", // r13
+        "mov [rcx + 0x28], r14", // r14
+        "mov [rcx + 0x30], r15", // r15
+        "mov [rcx + 0x38], rdi", // rdi (MS ABI Callee-saved)
+        "mov [rcx + 0x40], rsi", // rsi (MS ABI Callee-saved)
         // 戻り先アドレス（call命令でスタックにpushされている）を保存
         "mov rax, [rsp]",
-        "mov [rdi + 0x48], rax", // rip
+        "mov [rcx + 0x48], rax", // rip
         // RFLAGSを保存
         "pushfq",
         "pop rax",
-        "mov [rdi + 0x50], rax", // rflags
+        "mov [rcx + 0x50], rax", // rflags
         // 新しいコンテキストを復元
-        "mov rax, [rsi + 0x48]", // 新しいrip
-        "mov r11, [rsi + 0x50]", // 新しいrflags
-        "mov rbx, [rsi + 0x10]", // rbx
-        "mov r12, [rsi + 0x18]", // r12
-        "mov r13, [rsi + 0x20]", // r13
-        "mov r14, [rsi + 0x28]", // r14
-        "mov r15, [rsi + 0x30]", // r15
-        "mov rdi, [rsi + 0x38]", // rdi (復元)
-        // rsi needs to be restored LAST because it holds the pointer to new_context
-        // But we need to restore rsi from [rsi + 0x40].
-        // So we load it into a temp register (rax is free now since we used it for rip, waits no we jump to rax)
-        // We can use rbp or something? No, rbp restored.
-        // We can use the STACK or a temp register?
-        // r11 holds rflags, we push it after.
-        // Let's use rax for rsi_value.
-        "mov rax, [rsi + 0x40]", // rsi (value to restore)
-        "mov rsi, rax",           // rsi restored (now rsi pointer is lost, but we don't need it anymore except for next fields... wait)
-
-        // Wait, we need [rsi + 0x48] (RIP) and [rsi + 0x00] (RSP) and [rsi + 0x08] (RBP).
-        // I restored rbp from [rsi + 0x08] ALREADY?
-        // Let's reorder.
-
-        // 1. Load everything we need from [rsi] while [rsi] is still valid.
-        "mov rbp, [rsi + 0x08]", // rbp
-        "mov rsp, [rsi + 0x00]", // rsp
-        "mov rax, [rsi + 0x48]", // rip (target)
-
-        // 2. Restore GPRs
-        // rbx, r12, r13, r14, r15 done above or here.
-        // rdi restored above or here.
-        // rsi restored LAST.
-
-        // Let's rewrite the restore part clearly
-        "mov rbx, [rsi + 0x10]", // rbx
-        "mov r12, [rsi + 0x18]", // r12
-        "mov r13, [rsi + 0x20]", // r13
-        "mov r14, [rsi + 0x28]", // r14
-        "mov r15, [rsi + 0x30]", // r15
-        "mov rdi, [rsi + 0x38]", // rdi
-        // Now carefully restore rsi. We need rsi pointer to read rsi value.
-        // But we also need 'rax' (rip) and 'r11' (rflags) preserved.
-        // We can push rsi value to stack? But we just switched stack!
-        // Yes, we switched RSP to new stack. We can push to new stack?
-        // But we assume the stack is clean/prepared.
-        // We can just use a register that we haven't restored yet, or overwrite one temp.
-        // We haven't restored 'rsi' yet.
-        // We can use 'rcx' or 'rdx' as scratch! (Caller saved).
-        "mov rcx, [rsi + 0x40]", // load new rsi value into rcx
-        "mov rsi, rcx",           // restore rsi
+        "mov rax, [rdx + 0x48]", // 新しいrip
+        "mov r11, [rdx + 0x50]", // 新しいrflags
+        "mov rbx, [rdx + 0x10]", // rbx
+        "mov r12, [rdx + 0x18]", // r12
+        "mov r13, [rdx + 0x20]", // r13
+        "mov r14, [rdx + 0x28]", // r14
+        "mov r15, [rdx + 0x30]", // r15
+        "mov rdi, [rdx + 0x38]", // rdi
+        "mov rsi, [rdx + 0x40]", // rsi
+        "mov rbp, [rdx + 0x08]", // rbp
+        "mov rsp, [rdx + 0x00]", // rsp
 
         // RFLAGSを復元
         "push r11",
@@ -180,22 +142,27 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
         core::ptr::null_mut()
     };
 
-    // 次のスレッドのコンテキストへのポインタを取得
-    let new_context_ptr = if let Some(thread) = queue.get(next_id) {
+    // 次のスレッドのコンテキストへのポインタとカーネルスタックトップを取得
+    let (new_context_ptr, next_kstack_top) = if let Some(thread) = queue.get(next_id) {
         let ptr = thread.context() as *const Context;
+        let kstack = thread.kernel_stack_top();
         crate::debug!(
-            "  Next context ptr: {:p}, rsp={:#x}, rip={:#x}",
+            "  Next context ptr: {:p}, rsp={:#x}, rip={:#x}, kstack={:#x}",
             ptr,
             thread.context().rsp,
-            thread.context().rip
+            thread.context().rip,
+            kstack
         );
-        ptr
+        (ptr, kstack)
     } else {
         return; // 次のスレッドが見つからない
     };
 
     // ロックを解放してからコンテキストスイッチ
     drop(queue);
+
+    // TSSのRSP0を更新
+    crate::mem::tss::set_rsp0(next_kstack_top);
 
     crate::debug!("About to perform context switch...");
 

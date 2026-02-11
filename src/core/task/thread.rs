@@ -246,6 +246,10 @@ impl Thread {
     pub fn context(&self) -> &Context {
         &self.context
     }
+
+    pub fn kernel_stack_top(&self) -> u64 {
+        (self.kernel_stack + self.kernel_stack_size as u64) & !0xF
+    }
 }
 
 impl core::fmt::Debug for Thread {

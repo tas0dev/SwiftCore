@@ -14,6 +14,7 @@ static mut KERNEL_THREAD_STACK: KernelStack = KernelStack([0; KERNEL_THREAD_STAC
 
 /// カーネルメイン関数
 fn kernel_main() -> ! {
+    util::log::set_level(util::log::LogLevel::Info);
     debug!("Kernel started");
 
     // .service ファイルを自動実行
@@ -47,7 +48,6 @@ fn kernel_main() -> ! {
 /// カーネルエントリポイント
 #[no_mangle]
 pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
-    util::log::set_level(util::log::LogLevel::Debug);
     let memory_map = match kinit(boot_info) {
         Ok(map) => map,
         Err(e) => {
@@ -60,8 +60,6 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
         handle_kernel_error(e);
         halt_forever();
     });
-
-    debug!("Starting task scheduler...");
     task::start_scheduling();
 }
 
