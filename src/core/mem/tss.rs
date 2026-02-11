@@ -48,3 +48,17 @@ pub fn init() -> &'static TaskStateSegment {
         tss
     })
 }
+
+/// Ring 0スタック (RSP0) を更新
+///
+/// コンテキストスイッチ時に呼び出し、次のスレッドのカーネルスタックを設定する
+pub fn set_rsp0(rsp: u64) {
+    if let Some(tss) = TSS.get() {
+        // TSSは参照として取得されるが、RSP0は実行時に変更する必要があるため、
+        // 内部可変性を持つか、ポインタ経由で変更する
+        let ptr = tss as *const TaskStateSegment as *mut TaskStateSegment;
+        unsafe {
+            (*ptr).privilege_stack_table[0] = VirtAddr::new(rsp);
+        }
+    }
+}
