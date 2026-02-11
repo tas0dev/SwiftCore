@@ -1,12 +1,9 @@
 #![no_std]
 #![no_main]
 
-#[macro_use]
-extern crate std;
-
-use core::panic::PanicInfo;
 use core::mem::size_of;
-use std::{ipc, thread};
+use std;
+use std::{ipc, println, thread};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -16,6 +13,7 @@ struct FsRequest {
     arg2: u64,
     path: [u8; 128],
 }
+
 impl FsRequest {
     const OP_OPEN: u64 = 1;
     const OP_READ: u64 = 2;
@@ -72,7 +70,7 @@ struct AlignedBuffer([u8; 256]);
 /// FS Service Entry Point
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    swiftcore_std::heap::init();
+    std::heap::init();
     println!("[FS] Service Started with swift_std.");
 
     // 初期ファイル作成
@@ -262,13 +260,5 @@ pub extern "C" fn _start() -> ! {
         } else {
             thread::yield_now();
         }
-    }
-}
-
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    println!("PANIC in fs_service: {}", info);
-    loop {
-        thread::yield_now();
     }
 }

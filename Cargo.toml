@@ -23,6 +23,13 @@ uefi = { version = "0.30", features = ["alloc", "logger"] }
 spin = "0.9"
 x86_64 = "0.15"
 
+[workspace]
+members = [
+    "src/lib",
+    "src/apps/test_app",
+    "src/services/fs",
+]
+
 [profile.dev]
 panic = "abort"
 
