@@ -1,9 +1,6 @@
 #![no_std]
 #![no_main]
 
-#![no_std]
-#![no_main]
-
 extern crate fs_service;
 use core::panic::PanicInfo;
 use fs_service::{print, print_u64, ipc_recv, ipc_send, yield_now, FsRequest, FsResponse};
@@ -28,6 +25,9 @@ impl VirtualFile {
 }
 
 static mut FILES: [VirtualFile; MAX_FILES] = [VirtualFile::new(); MAX_FILES];
+
+#[repr(align(8))]
+struct AlignedBuffer([u8; 256]);
 
 /// FS Service Entry Point
 #[no_mangle]
@@ -56,13 +56,13 @@ pub extern "C" fn _start() -> ! {
     print("[FS] RamFS Initialized. 'readme.txt' created.\n");
     print("[FS] Waiting for requests...\n");
 
-    let mut recv_buf = [0u8; 256];
+    let mut recv_buf = AlignedBuffer([0u8; 256]);
 
     loop {
-        let (sender, len) = ipc_recv(&mut recv_buf);
-        if sender != 0 && len >= core::mem::size_of::<FsRequest>() {
+        let (sender, len) = ipc_recv(&mut recv_buf.0);
+        if sender != 0 && len >= size_of::<FsRequest>() {
             // 受信データをリクエストとして解釈
-            let req: FsRequest = unsafe { core::ptr::read(recv_buf.as_ptr() as *const _) };
+            let req: FsRequest = unsafe { core::ptr::read(recv_buf.0.as_ptr() as *const _) };
 
             print("[FS] REQ op=");
             print_u64(req.op);
@@ -80,26 +80,27 @@ pub extern "C" fn _start() -> ! {
                     unsafe {
                         for i in 0..MAX_FILES {
                             if FILES[i].used {
-                                // 簡易比較
-                                let mut curr_len = 0;
-                                while curr_len < 32 && FILES[i].name[curr_len] != 0 { curr_len += 1; }
+                                // 厳密な比較を行う
+                                let name_len = FILES[i].name_len;
 
-                                // リクエストのパスと比較
-                                let mut match_len = 0;
-                                while match_len < 32 && match_len < curr_len {
-                                    if req.path[match_len] != FILES[i].name[match_len] {
-                                        break;
-                                    }
-                                    match_len += 1;
+                                // リクエストのパス長を取得（null終端または最大長）
+                                let mut path_len = 0;
+                                while path_len < 128 && req.path[path_len] != 0 {
+                                    path_len += 1;
                                 }
 
-                                // 完全一致チェック
-                                if match_len == curr_len {
-                                     // パスの終端チェック
-                                     if match_len >= 128 || req.path[match_len] == 0 {
-                                         found_idx = i as i64;
-                                         break;
-                                     }
+                                if name_len == path_len {
+                                    let mut matched = true;
+                                    for k in 0..name_len {
+                                        if FILES[i].name[k] != req.path[k] {
+                                            matched = false;
+                                            break;
+                                        }
+                                    }
+                                    if matched {
+                                        found_idx = i as i64;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -142,7 +143,7 @@ pub extern "C" fn _start() -> ! {
 
             // レスポンス送信
             let resp_slice = unsafe {
-                core::slice::from_raw_parts(&resp as *const _ as *const u8, core::mem::size_of::<FsResponse>())
+                core::slice::from_raw_parts(&resp as *const _ as *const u8, size_of::<FsResponse>())
             };
             ipc_send(sender, resp_slice);
 
