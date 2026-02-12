@@ -2,7 +2,7 @@
 name = "SwiftCore"
 version = "0.1.0"
 edition = "2021"
-authors = ["nekogakure <info@mail.nekogakure.jp>"]
+authors = ["tas0dev"]
 default-run = "boot"
 build = "build.rs"
 
@@ -25,7 +25,6 @@ x86_64 = "0.15"
 
 [workspace]
 members = [
-    "src/lib",
     "src/apps/test_app",
     "src/services/fs",
 ]
