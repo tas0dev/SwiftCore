@@ -1,0 +1,16 @@
+[package]
+name = "swiftlib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[features]
+default = ["library"]
+library = []
+
+[lib]
+name = "swiftlib"
+path = "lib.rs"
+test = false
+bench = false
