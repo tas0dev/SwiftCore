@@ -8,8 +8,18 @@ pub extern "C" fn _write(fd: i32, buf: *const u8, len: usize) -> isize {
 }
 
 #[no_mangle]
+pub extern "C" fn write(fd: i32, buf: *const u8, len: usize) -> isize {
+    _write(fd, buf, len)
+}
+
+#[no_mangle]
 pub extern "C" fn _read(fd: i32, buf: *mut u8, len: usize) -> isize {
     syscall3(SyscallNumber::Read as u64, fd as u64, buf as u64, len as u64) as isize
+}
+
+#[no_mangle]
+pub extern "C" fn read(fd: i32, buf: *mut u8, len: usize) -> isize {
+    _read(fd, buf, len)
 }
 
 #[no_mangle]
@@ -18,8 +28,18 @@ pub extern "C" fn _close(fd: i32) -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn close(fd: i32) -> i32 {
+    _close(fd)
+}
+
+#[no_mangle]
 pub extern "C" fn _lseek(fd: i32, offset: isize, whence: i32) -> isize {
     syscall3(SyscallNumber::Lseek as u64, fd as u64, offset as u64, whence as u64) as isize
+}
+
+#[no_mangle]
+pub extern "C" fn lseek(fd: i32, offset: isize, whence: i32) -> isize {
+    _lseek(fd, offset, whence)
 }
 
 #[no_mangle]
@@ -28,9 +48,17 @@ pub extern "C" fn _exit(code: i32) -> ! {
     loop {}
 }
 
+// exit は libc にあるので定義しなくてよいかも？でも _exit を呼ぶはず。
+// ただし crt0 から呼ばれるのは _exit だったりする。
+
 #[no_mangle]
 pub extern "C" fn _fstat(fd: i32, stat: *mut u8) -> i32 {
     syscall2(SyscallNumber::Fstat as u64, fd as u64, stat as u64) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn fstat(fd: i32, stat: *mut u8) -> i32 {
+    _fstat(fd, stat)
 }
 
 #[no_mangle]
@@ -41,6 +69,11 @@ pub extern "C" fn _isatty(fd: i32) -> i32 {
     } else {
         0
     }
+}
+
+#[no_mangle]
+pub extern "C" fn isatty(fd: i32) -> i32 {
+    _isatty(fd)
 }
 
 // ヒープの現在の末端アドレス
@@ -81,13 +114,27 @@ pub extern "C" fn _sbrk(incr: isize) -> *mut u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn sbrk(incr: isize) -> *mut u8 {
+    _sbrk(incr)
+}
+
+#[no_mangle]
 pub extern "C" fn _getpid() -> i32 {
     syscall1(SyscallNumber::GetPid as u64, 0) as i32
 }
 
 #[no_mangle]
-pub extern "C" fn _kill(pid: i32, sig: i32) -> i32 {
-    // TODO: 実装する
+pub extern "C" fn getpid() -> i32 {
+    _getpid()
+}
+
+#[no_mangle]
+pub extern "C" fn _kill(_pid: i32, _sig: i32) -> i32 {
+    // 未実装
     -1
 }
 
+#[no_mangle]
+pub extern "C" fn kill(pid: i32, sig: i32) -> i32 {
+    _kill(pid, sig)
+}
