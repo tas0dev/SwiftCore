@@ -327,9 +327,11 @@ fn build_apps(apps_dir: &Path, initfs_dir: &Path, extension: &str) {
                 if output.status.success() {
                     // ビルド成果物を探す
                     let target_dir = path.join("target");
-                    let target_name = target_spec.as_ref()
-                        .and_then(|p| Path::new(p).file_stem())
-                        .map(|s| s.to_string_lossy().to_string());
+                    let target_name = if let Some(p) = &target_spec {
+                         Path::new(p).file_stem().map(|s| s.to_string_lossy().to_string())
+                    } else {
+                         Some("x86_64-unknown-none".to_string())
+                    };
 
                     if let Some(elf_path) = find_built_binary(&target_dir, target_name.as_deref()) {
                         let dest_name = format!("{}.{}", app_name, extension);
