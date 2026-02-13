@@ -52,9 +52,47 @@ pub fn gettid() -> u64 {
 /// Brkシステムコール
 /// 
 /// メモリのヒープ領域サイズを変更する
-/// 現在は未実装 (ENOSYS)
-pub fn brk(_addr: u64) -> u64 {
-    ENOSYS
+pub fn brk(addr: u64) -> u64 {
+    // 現在のプロセスIDを取得
+    let current_tid = match current_thread_id() {
+        Some(tid) => tid,
+        None => return ENOSYS,
+    };
+
+    // プロセスIDを取得
+    let pid = match crate::task::with_thread(current_tid, |t| t.process_id()) {
+        Some(pid) => pid,
+        None => return ENOSYS,
+    };
+
+    crate::task::with_process_mut(pid, |process| {
+        // addr == 0 なら現在の位置を返す
+        if addr == 0 {
+             if process.heap_start() == 0 {
+                 // ヒープ領域初期化（暫定）
+                 let default_heap_base = 0x4000_0000;
+                 process.set_heap_start(default_heap_base);
+                 process.set_heap_end(default_heap_base);
+             }
+             return process.heap_end();
+        }
+
+        let current_brk = process.heap_end();
+
+        // 縮小または変化なし
+        if addr <= current_brk {
+            // 特に何もしない
+             process.set_heap_end(addr);
+             return addr;
+        }
+
+        // 拡大
+        // Note: 実際の物理メモリ割り当てが実装されていないため、
+        // アクセスするとページフォールトになる可能性がある。
+
+        process.set_heap_end(addr);
+        addr
+    }).unwrap_or(ENOSYS)
 }
 
 /// Forkシステムコール

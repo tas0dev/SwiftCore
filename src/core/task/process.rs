@@ -21,6 +21,10 @@ pub struct Process {
     parent_id: Option<ProcessId>,
     /// ページテーブルのアドレス（メモリ空間）。Noneの場合はカーネル空間を共有。
     page_table: Option<u64>,
+    /// ヒープ開始アドレス
+    heap_start: u64,
+    /// 現在のヒープ終了アドレス (program break)
+    heap_end: u64,
     /// 優先度（0が最高、値が大きいほど低い）
     priority: u8,
 }
@@ -44,6 +48,10 @@ impl Process {
         let len = core::cmp::min(bytes.len(), 32);
         name_buf[..len].copy_from_slice(&bytes[..len]);
 
+        // デフォルトのヒープ領域（仮）。exec時に再設定されるべき。
+        // 0x40000000番地あたりを開始にする例が多いが、ここでは0にしておく。
+        let heap_start = 0;
+
         Self {
             id: ProcessId::new(),
             name: name_buf,
@@ -52,6 +60,8 @@ impl Process {
             privilege,
             parent_id,
             page_table: None, // TODO: ページテーブル実装後に設定
+            heap_start,
+            heap_end: heap_start,
             priority,
         }
     }
@@ -99,6 +109,26 @@ impl Process {
     /// ページテーブルアドレスを設定
     pub fn set_page_table(&mut self, page_table: u64) {
         self.page_table = Some(page_table);
+    }
+
+    /// ヒープ終了アドレスを取得
+    pub fn heap_end(&self) -> u64 {
+        self.heap_end
+    }
+
+    /// ヒープ終了アドレスを設定
+    pub fn set_heap_end(&mut self, addr: u64) {
+        self.heap_end = addr;
+    }
+
+    /// ヒープ開始アドレスを取得
+    pub fn heap_start(&self) -> u64 {
+        self.heap_start
+    }
+
+    /// ヒープ開始アドレスを設定
+    pub fn set_heap_start(&mut self, addr: u64) {
+        self.heap_start = addr;
     }
 }
 

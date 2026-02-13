@@ -26,10 +26,6 @@ x86_64 = "0.15"
 [build-dependencies]
 num_cpus = "1.17.0"
 
-[workspace]
-members = [
-]
-
 [profile.dev]
 panic = "abort"
 
