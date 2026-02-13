@@ -2,8 +2,6 @@
 #![no_main]
 
 use core::mem::size_of;
-use std;
-use std::{ipc, println, thread};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
