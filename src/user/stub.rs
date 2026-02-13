@@ -7,6 +7,10 @@ pub mod task;
 pub mod time;
 pub mod io;
 
+// CランタイムとNewlibサポート
+// mod crt; // crtは個別にコンパイルする
+pub mod newlib;
+
 mod sys;
 
 pub use sys::SyscallNumber;

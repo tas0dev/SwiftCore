@@ -2,6 +2,7 @@
 #![no_main]
 
 use core::mem::size_of;
+use core::panic::PanicInfo;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -68,8 +69,8 @@ struct AlignedBuffer([u8; 256]);
 /// FS Service Entry Point
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    std::heap::init();
-    println!("[FS] Service Started with swift_std.");
+    // std::heap::init();
+    // println!("[FS] Service Started with swift_std.");
 
     // 初期ファイル作成
     unsafe {
@@ -80,7 +81,7 @@ pub extern "C" fn _start() -> ! {
         }
         FILES[0].name_len = name.len();
 
-        let content = "Welcome to SwiftCore OS!\nThis file is served by fs.service from RamFS.\n";
+        let content = "Welcome to SwiftCore OS!\nThis file is served by initfs.service from RamFS.\n";
         for (i, b) in content.bytes().enumerate() {
             if i < FILE_SIZE {
                 FILES[0].data[i] = b;
@@ -259,4 +260,9 @@ pub extern "C" fn _start() -> ! {
             thread::yield_now();
         }
     }
+}
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
 }

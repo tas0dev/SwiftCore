@@ -25,7 +25,7 @@ fn kernel_main() -> ! {
 
             // サービス名（ドメイン）のマッピング
             let service_name = match path {
-                "fs.service" => "core.service.fs",
+                "initfs.service" => "core.service.initfs",
                 "test_service.service" => "ext.service.test",
                 _ => path,
             };
