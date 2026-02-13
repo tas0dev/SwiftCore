@@ -23,10 +23,11 @@ uefi = { version = "0.30", features = ["alloc", "logger"] }
 spin = "0.9"
 x86_64 = "0.15"
 
+[build-dependencies]
+num_cpus = "1.17.0"
+
 [workspace]
 members = [
-    "src/apps/test_app",
-    "src/services/fs",
 ]
 
 [profile.dev]
