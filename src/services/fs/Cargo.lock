@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "fs"
 version = "0.1.0"
+dependencies = [
+ "swiftlib",
+]
+
+[[package]]
+name = "swiftlib"
+version = "0.1.0"
