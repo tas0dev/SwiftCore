@@ -8,7 +8,7 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
     // fsディレクトリ
-    let fs_dir = manifest_dir.join("initfs");
+    let fs_dir = manifest_dir.join("fs");
 
     // fsディレクトリが存在しない場合、作成
     if !fs_dir.is_dir() {

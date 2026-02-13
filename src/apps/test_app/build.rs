@@ -6,7 +6,7 @@ fn main() {
     let project_root = Path::new(&manifest_dir).parent().unwrap().parent().unwrap().parent().unwrap();
 
     // 生成されたnewlibとcrt0の場所
-    let fs_dir = project_root.join("initfs");
+    let fs_dir = project_root.join("fs");
 
     // ライブラリ検索パスを追加
     println!("cargo:rustc-link-search=native={}", fs_dir.display());
@@ -30,5 +30,6 @@ fn main() {
     // リンカスクリプトの指定（もしあれば）
     // println!("cargo:rustc-link-arg=-Tlinker.ld");
 
-    println!("cargo:rerun-if-changed=../../initfs/libc.a");
+    println!("cargo:rerun-if-changed=../../fs/libc.a");
 }
+
