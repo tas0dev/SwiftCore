@@ -2,43 +2,67 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use num_cpus;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    // fsディレクトリ
+    let fs_dir = manifest_dir.join("fs");
+
+    // newlibのビルド
+    let newlib_src_dir = manifest_dir.join("src/lib");
+    build_newlib(&newlib_src_dir);
+
+    // libc.a, libg.a, libm.a, libnosys.aをfsにコピー
+    let libc_dir = newlib_src_dir.join("target")
+        .join("x86_64-unknown-uefi")
+        .join(env::var("PROFILE").unwrap())
+        .join("x86_64-elf")
+        .join("lib");
+
+    let libs = ["libc.a", "libg.a", "libm.a", "libnosys.a"];
+    for lib in &libs {
+        let src = libc_dir.join(lib);
+        let dest = fs_dir.join(lib);
+        if let Err(e) = fs::copy(&src, &dest) {
+            panic!("Failed to copy {} to fs: {}. Make sure newlib is built correctly.", lib, e);
+        } else {
+            println!("Copied {} to fs (from {})", lib, src.display());
+        }
+    }
+
     let apps_dir = manifest_dir.join("src/apps");
     let services_dir = manifest_dir.join("src/services");
 
-    // fsディレクトリを使用（プロジェクトルート直下）
-    let initfs_dir = manifest_dir.join("fs");
-
-    // initfsディレクトリが存在しない場合、作成
-    if !initfs_dir.is_dir() {
-        fs::create_dir_all(&initfs_dir).expect(&format!(
+    // fsディレクトリが存在しない場合、作成
+    if !fs_dir.is_dir() {
+        fs::create_dir_all(&fs_dir).expect(&format!(
             "Failed to create initfs directory: {}",
-            initfs_dir.display()
+            fs_dir.display()
         ));
 
-        println!("created initfs directory at {}", initfs_dir.display());
+        println!("created fs directory at {}", fs_dir.display());
     }
 
     // appsディレクトリが存在する場合、アプリをビルド
     if apps_dir.is_dir() {
-        build_apps(&apps_dir, &initfs_dir, "elf");
+        build_apps(&apps_dir, &fs_dir, "elf");
     }
 
     // servicesディレクトリが存在する場合、サービスをビルド
     if services_dir.is_dir() {
-        build_apps(&services_dir, &initfs_dir, "service");
+        build_apps(&services_dir, &fs_dir, "service");
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let image_path = out_dir.join("initfs.ext2");
+    let image_path = out_dir.join("fs.ext2");
 
-    emit_rerun_if_changed(&initfs_dir);
+    emit_rerun_if_changed(&fs_dir);
 
     let status = Command::new("mke2fs")
         .args(["-t", "ext2", "-b", "4096", "-m", "0", "-L", "initfs", "-d"])
-        .arg(&initfs_dir)
+        .arg(&fs_dir)
         .arg(&image_path)
         .arg("4096")
         .status();
@@ -51,6 +75,58 @@ fn main() {
         Err(e) => {
             panic!("failed to execute mke2fs: {e}. Please install e2fsprogs (mke2fs).");
         }
+    }
+}
+
+fn build_newlib(_root_dir: &Path) {
+    let target = env::var("TARGET").expect("TARGET not set");
+    let profile = env::var("PROFILE").expect("PROFILE not set");
+
+    let target_dir = env::var("CARGO_TARGET_DIR")
+        .unwrap_or_else(|_| "target".into());
+
+    // 絶対パス化
+    let install_dir = PathBuf::from(target_dir)
+        .canonicalize()
+        .unwrap_or_else(|_| env::current_dir().unwrap().join("target"))
+        .join(&target)
+        .join(&profile);
+
+    let build_dir = install_dir.join("newlib_build");
+
+    if install_dir.join("lib/libc.a").exists() {
+        println!("newlib already built, skipping");
+        return;
+    }
+
+    fs::create_dir_all(&build_dir)
+        .expect("Failed to create newlib build dir");
+
+    let cpu_cores = num_cpus::get();
+    let make_j = format!("-j{}", cpu_cores);
+
+    println!("Building newlib...");
+
+    let status = Command::new("make")
+        .current_dir(&build_dir)
+        .arg(make_j)
+        .status()
+        .expect("Failed to execute newlib make");
+
+    if !status.success() {
+        panic!("Newlib make failed");
+    }
+
+    println!("Installing newlib...");
+
+    let status = Command::new("make")
+        .current_dir(&build_dir)
+        .arg("install")
+        .status()
+        .expect("Failed to execute newlib make install");
+
+    if !status.success() {
+        panic!("Newlib make install failed");
     }
 }
 
