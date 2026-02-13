@@ -70,7 +70,7 @@ fn main() {
     }
 
     let apps_dir = manifest_dir.join("src/apps");
-    let _services_dir = manifest_dir.join("src/services");
+    let services_dir = manifest_dir.join("src/services");
 
     // appsディレクトリが存在する場合、アプリをビルド
     if apps_dir.is_dir() {
@@ -78,9 +78,9 @@ fn main() {
     }
 
     // servicesディレクトリが存在する場合、サービスをビルド
-    // if _services_dir.is_dir() {
-    //     build_apps(&_services_dir, &fs_dir, "service");
-    // }
+    if services_dir.is_dir() {
+        build_apps(&services_dir, &fs_dir, "service");
+    }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let image_path = out_dir.join("initfs.ext2");
@@ -157,7 +157,8 @@ fn build_newlib(src_dir: &Path) {
             .expect("Failed to execute newlib configure");
 
         if !status.success() {
-            panic!("Newlib configure failed");
+            let _ = fs::remove_dir_all(&build_dir);
+            panic!("Newlib configure failed. Build directory cleaned up.");
         }
     }
 
@@ -173,7 +174,8 @@ fn build_newlib(src_dir: &Path) {
         .expect("Failed to execute newlib make");
 
     if !status.success() {
-        panic!("Newlib make failed");
+        let _ = fs::remove_dir_all(&build_dir);
+        panic!("Newlib make failed. Build directory cleaned up. Please try again.");
     }
 
     println!("Installing newlib...");
@@ -185,7 +187,8 @@ fn build_newlib(src_dir: &Path) {
         .expect("Failed to execute newlib make install");
 
     if !status.success() {
-        panic!("Newlib make install failed");
+        let _ = fs::remove_dir_all(&build_dir);
+        panic!("Newlib make install failed. Build directory cleaned up.");
     }
 }
 
