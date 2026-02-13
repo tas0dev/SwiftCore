@@ -1,11 +1,20 @@
-target
-/.idea
-*.fossil
-*.fslckout
-*.log
+# Binaries
+target/
 *.bin
 *.elf
 *.service
-*.lock
+*.o
+*.a
 
-/src/initfs/
+# editor config files
+.idea/
+.vscode/
+.zed/
+
+# fossil version control
+*.fossil
+*.fslckout
+
+# others
+*.log
+*.lock

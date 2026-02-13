@@ -8,32 +8,7 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
     // fsディレクトリ
-    let fs_dir = manifest_dir.join("fs");
-
-    // newlibのビルド
-    let newlib_src_dir = manifest_dir.join("src/lib");
-    build_newlib(&newlib_src_dir);
-
-    // libc.a, libg.a, libm.a, libnosys.aをfsにコピー
-    let libc_dir = newlib_src_dir.join("target")
-        .join("x86_64-unknown-uefi")
-        .join(env::var("PROFILE").unwrap())
-        .join("x86_64-elf")
-        .join("lib");
-
-    let libs = ["libc.a", "libg.a", "libm.a", "libnosys.a"];
-    for lib in &libs {
-        let src = libc_dir.join(lib);
-        let dest = fs_dir.join(lib);
-        if let Err(e) = fs::copy(&src, &dest) {
-            panic!("Failed to copy {} to fs: {}. Make sure newlib is built correctly.", lib, e);
-        } else {
-            println!("Copied {} to fs (from {})", lib, src.display());
-        }
-    }
-
-    let apps_dir = manifest_dir.join("src/apps");
-    let services_dir = manifest_dir.join("src/services");
+    let fs_dir = manifest_dir.join("initfs");
 
     // fsディレクトリが存在しない場合、作成
     if !fs_dir.is_dir() {
@@ -41,9 +16,61 @@ fn main() {
             "Failed to create initfs directory: {}",
             fs_dir.display()
         ));
-
-        println!("created fs directory at {}", fs_dir.display());
     }
+
+    // newlibのビルド
+    let newlib_src_dir = manifest_dir.join("src/lib");
+    if !newlib_src_dir.exists() {
+         panic!("Newlib source not found at {}", newlib_src_dir.display());
+    }
+    build_newlib(&newlib_src_dir);
+
+    let target = env::var("TARGET").unwrap_or("x86_64-unknown-uefi".to_string());
+    let profile = env::var("PROFILE").unwrap_or("debug".to_string());
+    let target_dir = PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or("target".to_string()));
+
+    let abs_target_dir = if target_dir.is_absolute() {
+        target_dir
+    } else {
+        manifest_dir.join(target_dir)
+    };
+
+    let newlib_install_dir = abs_target_dir
+        .join(&target)
+        .join(&profile)
+        .join("newlib_install");
+
+    // libc.a, libg.a, libm.a, libnosys.aをinitfsにコピー
+    let libc_dir = newlib_install_dir
+        .join("x86_64-elf")
+        .join("lib");
+
+    // ユーザーライブラリをinitfsにコピー
+    let user_src_dir = manifest_dir.join("src/user");
+    build_user_libs(&user_src_dir, &libc_dir);
+
+    // crt0.oをコピー
+    let crt0_src = libc_dir.join("crt0.o");
+    let crt0_dest = fs_dir.join("crt0.o");
+    if let Err(e) = fs::copy(&crt0_src, &crt0_dest) {
+        panic!("Failed to copy crt0.o to initfs: {}", e);
+    } else {
+        println!("Copied crt0.o to initfs");
+    }
+
+    let libs = ["libc.a", "libg.a", "libm.a", "libnosys.a"];
+    for lib in &libs {
+        let src = libc_dir.join(lib);
+        let dest = fs_dir.join(lib);
+        if let Err(e) = fs::copy(&src, &dest) {
+            panic!("Failed to copy {} to initfs: {}. Make sure newlib is built correctly.", lib, e);
+        } else {
+            println!("Copied {} to initfs (from {})", lib, src.display());
+        }
+    }
+
+    let apps_dir = manifest_dir.join("src/apps");
+    let _services_dir = manifest_dir.join("src/services");
 
     // appsディレクトリが存在する場合、アプリをビルド
     if apps_dir.is_dir() {
@@ -51,12 +78,12 @@ fn main() {
     }
 
     // servicesディレクトリが存在する場合、サービスをビルド
-    if services_dir.is_dir() {
-        build_apps(&services_dir, &fs_dir, "service");
-    }
+    // if _services_dir.is_dir() {
+    //     build_apps(&_services_dir, &fs_dir, "service");
+    // }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let image_path = out_dir.join("fs.ext2");
+    let image_path = out_dir.join("initfs.ext2");
 
     emit_rerun_if_changed(&fs_dir);
 
@@ -64,7 +91,7 @@ fn main() {
         .args(["-t", "ext2", "-b", "4096", "-m", "0", "-L", "initfs", "-d"])
         .arg(&fs_dir)
         .arg(&image_path)
-        .arg("4096")
+        .arg("32768") // 128MB
         .status();
 
     match status {
@@ -78,29 +105,61 @@ fn main() {
     }
 }
 
-fn build_newlib(_root_dir: &Path) {
+fn build_newlib(src_dir: &Path) {
     let target = env::var("TARGET").expect("TARGET not set");
     let profile = env::var("PROFILE").expect("PROFILE not set");
 
-    let target_dir = env::var("CARGO_TARGET_DIR")
-        .unwrap_or_else(|_| "target".into());
+    let target_dir = PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or("target".to_string()));
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    // 絶対パス化
-    let install_dir = PathBuf::from(target_dir)
-        .canonicalize()
-        .unwrap_or_else(|_| env::current_dir().unwrap().join("target"))
+    // Resolve absolute target dir
+    let abs_target_dir = if target_dir.is_absolute() {
+        target_dir
+    } else {
+        manifest_dir.join(target_dir)
+    };
+
+    let build_base_dir = abs_target_dir
         .join(&target)
         .join(&profile);
 
-    let build_dir = install_dir.join("newlib_build");
+    let install_dir = build_base_dir.join("newlib_install");
+    let build_dir = build_base_dir.join("newlib_build");
 
-    if install_dir.join("lib/libc.a").exists() {
+    // Check if libc.a exists in the install location
+    if install_dir.join("x86_64-elf/lib/libc.a").exists() {
         println!("newlib already built, skipping");
         return;
     }
 
-    fs::create_dir_all(&build_dir)
-        .expect("Failed to create newlib build dir");
+    if !build_dir.exists() {
+        fs::create_dir_all(&build_dir).expect("Failed to create newlib build dir");
+    }
+
+    // Configure (if Makefile doesn't exist)
+    if !build_dir.join("Makefile").exists() {
+        println!("Configuring newlib...");
+
+        let configure_script = src_dir.join("configure");
+        if !configure_script.exists() {
+            panic!("configure script not found at {}", configure_script.display());
+        }
+
+        // We need an absolute path to configure script usually
+        let abs_configure = configure_script.canonicalize().unwrap();
+
+        let status = Command::new(abs_configure)
+            .current_dir(&build_dir)
+            .arg(format!("--target={}", "x86_64-elf"))
+            .arg(format!("--prefix={}", install_dir.display()))
+            .arg("--disable-multilib")
+            .status()
+            .expect("Failed to execute newlib configure");
+
+        if !status.success() {
+            panic!("Newlib configure failed");
+        }
+    }
 
     let cpu_cores = num_cpus::get();
     let make_j = format!("-j{}", cpu_cores);
@@ -128,6 +187,90 @@ fn build_newlib(_root_dir: &Path) {
     if !status.success() {
         panic!("Newlib make install failed");
     }
+}
+
+fn build_user_libs(user_dir: &Path, libc_dir: &Path) {
+    println!("Building user libs...");
+
+    // 1. crt0.o のビルド
+    let crt_src = user_dir.join("crt.rs");
+    let crt_obj = libc_dir.join("crt0.o");
+
+    let status = Command::new("rustc")
+        .args(&["--emit", "obj"])
+        .args(&["--crate-type", "lib"])
+        .args(&["--edition", "2021"])
+        .args(&["--target", "x86_64-unknown-none"])
+        .args(&["-o", crt_obj.to_str().unwrap()])
+        .arg(&crt_src)
+        .status()
+        .expect("Failed to build crt0.o");
+
+    if !status.success() {
+        panic!("Failed to build crt0.o");
+    }
+
+    // 2. libuserglue.a のビルド
+    let lib_src = user_dir.join("lib.rs");
+    let glue_lib = libc_dir.join("libuserglue.a");
+
+    let status = Command::new("rustc")
+        .args(&["--crate-type", "staticlib"])
+        .args(&["--edition", "2021"])
+        .args(&["--target", "x86_64-unknown-none"])
+        .args(&["-C", "panic=abort"])
+        .args(&["-o", glue_lib.to_str().unwrap()])
+        .arg(&lib_src)
+        .status()
+        .expect("Failed to build libuserglue.a");
+
+    if !status.success() {
+        panic!("Failed to build libuserglue.a");
+    }
+
+    // 3. libc.a にマージ
+    // 作業用ディレクトリを作る
+    let merge_dir = libc_dir.join("merge_tmp");
+    if merge_dir.exists() {
+        fs::remove_dir_all(&merge_dir).unwrap();
+    }
+    fs::create_dir(&merge_dir).unwrap();
+
+    // libc.a, libuserglue.a を絶対パスで取得しておく
+    let libc_a = libc_dir.join("libc.a");
+    let libglue_a = glue_lib;
+
+    // ar x libc.a
+    let status = Command::new("ar")
+        .current_dir(&merge_dir)
+        .arg("x")
+        .arg(&libc_a)
+        .status()
+        .expect("Failed to extract libc.a");
+    if !status.success() { panic!("ar x libc.a failed"); }
+
+    // ar x libuserglue.a
+    let status = Command::new("ar")
+        .current_dir(&merge_dir)
+        .arg("x")
+        .arg(&libglue_a)
+        .status()
+        .expect("Failed to extract libuserglue.a");
+    if !status.success() { panic!("ar x libuserglue.a failed"); }
+
+    // ar rcs libc.a *.o
+    let status = Command::new("sh")
+        .current_dir(&merge_dir)
+        .arg("-c")
+        .arg(format!("ar rcs {} *.o", libc_a.to_str().unwrap()))
+        .status()
+        .expect("Failed to repack libc.a");
+
+    if !status.success() { panic!("ar rcs libc.a failed"); }
+
+    // クリーンアップ
+    fs::remove_dir_all(&merge_dir).unwrap();
+    println!("Successfully merged user glue into libc.a");
 }
 
 fn build_apps(apps_dir: &Path, initfs_dir: &Path, extension: &str) {
@@ -170,6 +313,11 @@ fn build_apps(apps_dir: &Path, initfs_dir: &Path, extension: &str) {
         if let Some(target) = &target_spec {
             cmd.arg("--target").arg(target);
             println!("  Using target: {}", target);
+        } else {
+            // デフォルトは ELF (for newlib)
+            let default_target = "x86_64-unknown-none";
+            cmd.arg("--target").arg(default_target);
+            println!("  Using default target: {}", default_target);
         }
 
         let output = cmd.current_dir(&path).output();
