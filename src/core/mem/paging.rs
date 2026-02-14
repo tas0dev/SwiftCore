@@ -16,8 +16,8 @@ use uefi::table::boot::MemoryType as UefiMemoryType;
 use x86_64::registers::control::{Cr3, Cr3Flags};
 
 
-static PAGE_TABLE: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
-static PHYS_OFFSET: Mutex<Option<u64>> = Mutex::new(None);
+pub static PAGE_TABLE: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
+pub static PHYS_OFFSET: Mutex<Option<u64>> = Mutex::new(None);
 
 /// ページングシステムを初期化
 pub fn init(boot_info: &'static crate::BootInfo) {
