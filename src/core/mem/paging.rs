@@ -248,39 +248,57 @@ pub fn map_and_copy_segment(
 
     let mut page_addr = start;
     while page_addr < end {
-        let frame = frame::allocate_frame()?;
         let page = Page::containing_address(VirtAddr::new(page_addr));
+        let phys_frame_addr;
         
-        // 初期フラグ：PRESENT + USER_ACCESSIBLE + WRITABLE (コピーのため)
-        // NO_EXECUTEビットは設定しない（デフォルトで実行可能）
-        let mut flags =
-            PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE;
+        // Check if page is already mapped
+        let is_mapped = translate_addr(VirtAddr::new(page_addr)).is_some();
         
-        crate::debug!(
-            "about to map page {:#x} -> frame {:#x}, flags={:?}, writable={}",
-            page_addr,
-            frame.start_address().as_u64(),
-            flags,
-            writable
-        );
-        map_page(page, frame, flags)?;
-        let page_start = page_addr;
-        let phys_frame_addr = frame.start_address().as_u64();
-        crate::debug!(
-            "mapped page {:#x} -> phys {:#x}",
-            page_start,
-            phys_frame_addr
-        );
-
-        if let Some(phys_check) = translate_addr(VirtAddr::new(page_start)) {
-            crate::debug!(
-                "translate_addr({:#x}) = phys {:#x}",
-                page_start,
-                phys_check.as_u64()
+        if is_mapped {
+             // Already mapped. Ensure it is writable for loading.
+             phys_frame_addr = translate_addr(VirtAddr::new(page_addr)).unwrap().as_u64();
+             
+             // Temporarily map as writable if not already? 
+             // We can just update flags to PRESENT | USER | WRITABLE
+             let flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE;
+             
+             if let Some(ref mut pt) = PAGE_TABLE.lock().as_mut() {
+                 unsafe {
+                     // Update flags ignoring error (e.g. if already same)
+                     let _ = pt.update_flags(page, flags).map(|f| f.flush());
+                 }
+             }
+             
+             crate::debug!(
+                "reusing mapped page {:#x} -> phys {:#x}",
+                page_addr,
+                phys_frame_addr
             );
         } else {
-            crate::debug!("translate_addr({:#x}) = None", page_start);
+            // Not mapped, allocate new frame
+            let frame = frame::allocate_frame()?;
+            
+            // Setup flags: PRESENT + USER + WRITABLE
+            let flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE;
+            
+            crate::debug!(
+                "about to map page {:#x} -> frame {:#x}, flags={:?}, writable={}",
+                page_addr,
+                frame.start_address().as_u64(),
+                flags,
+                writable
+            );
+            map_page(page, frame, flags)?;
+            phys_frame_addr = frame.start_address().as_u64();
+            crate::debug!(
+                "mapped page {:#x} -> phys {:#x}",
+                page_addr,
+                phys_frame_addr
+            );
         }
+
+        let page_start = page_addr;
+        // ... (copy and zero logic) ...
         let page_end = page_addr + 4096;
         let file_region_start = vaddr;
         let file_region_end = vaddr + filesz;
