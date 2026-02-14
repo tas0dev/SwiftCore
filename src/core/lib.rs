@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
+#![feature(alloc_error_handler)]
 #![allow(unused)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
@@ -63,6 +64,10 @@ pub struct BootInfo {
     pub memory_map_len: usize,
     /// メモリマップの各エントリサイズ
     pub memory_map_entry_size: usize,
+    /// アロケータ切り替え用フラグのアドレス (Virtual Address)
+    pub allocator_addr: u64,
+    /// カーネルアロケータの制御構造体へのアドレス (Virtual Address)
+    pub kernel_heap_addr: u64,
 }
 
 /// メモリ領域の種類

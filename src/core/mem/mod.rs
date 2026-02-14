@@ -8,6 +8,7 @@ pub mod frame;
 pub mod gdt;
 pub mod paging;
 pub mod tss;
+pub mod allocator;
 
 pub fn init(boot_info: &'static crate::BootInfo) {
     info!("Initializing memory...");
@@ -18,6 +19,18 @@ pub fn init(boot_info: &'static crate::BootInfo) {
     interrupt::init_idt();
 
     paging::init(boot_info);
+
+    allocator::init_heap(
+        &mut *paging::PAGE_TABLE.lock().as_mut().unwrap(),
+        &mut *frame::FRAME_ALLOCATOR.lock().as_mut().unwrap(),
+        boot_info.kernel_heap_addr,
+    ).expect("Heap initialization failed");
+
+    // カーネルアロケータへ切り替え
+    unsafe {
+       let ptr = boot_info.allocator_addr as *mut core::sync::atomic::AtomicBool;
+       (*ptr).store(true, core::sync::atomic::Ordering::Relaxed);
+    }
 
     // PITを停止してからPICを初期化
     interrupt::disable_pit();
