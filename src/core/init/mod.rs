@@ -13,6 +13,14 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
         boot_info.stride,
     );
 
+    // ローディングスピナーを開始
+    util::loading::start_loading(
+        boot_info.framebuffer_addr,
+        boot_info.screen_width,
+        boot_info.screen_height,
+        boot_info.stride,
+    );
+
     // CPU機能の初期化（SSE/FPU有効化）
     crate::cpu::init();
 
