@@ -58,6 +58,7 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
 
                         crate::debug!("Mapping seg {} -> {:#x} (filesz={}, memsz={})", i, vaddr, filesz, memsz);
                         let seg_src = &data[src_off..src_off + filesz as usize];
+
                         if let Err(e) = crate::mem::paging::map_and_copy_segment(vaddr, filesz, memsz, seg_src, writable) {
                             crate::warn!("Failed to map segment: {:?}", e);
                             return crate::syscall::types::EINVAL;

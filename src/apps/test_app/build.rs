@@ -27,9 +27,10 @@ fn main() {
     println!("cargo:rustc-link-lib=static=g"); // libg.a
     println!("cargo:rustc-link-lib=static=m"); // libm.a
 
-    // リンカスクリプトの指定（もしあれば）
-    // println!("cargo:rustc-link-arg=-Tlinker.ld");
+    // リンカスクリプトの指定
+    println!("cargo:rustc-link-arg=-Tlinker.ld");
 
+    println!("cargo:rerun-if-changed=linker.ld");
     println!("cargo:rerun-if-changed=../../fs/libc.a");
 }
 

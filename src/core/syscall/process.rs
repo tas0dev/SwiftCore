@@ -65,7 +65,7 @@ pub fn brk(addr: u64) -> u64 {
         None => return ENOSYS,
     };
 
-    crate::task::with_process_mut(pid, |process| {
+    let result = crate::task::with_process_mut(pid, |process| {
         // addr == 0 なら現在の位置を返す
         if addr == 0 {
              if process.heap_start() == 0 {
@@ -74,7 +74,7 @@ pub fn brk(addr: u64) -> u64 {
                  process.set_heap_start(default_heap_base);
                  process.set_heap_end(default_heap_base);
              }
-             return process.heap_end();
+             return Ok(process.heap_end());
         }
 
         let current_brk = process.heap_end();
@@ -83,16 +83,36 @@ pub fn brk(addr: u64) -> u64 {
         if addr <= current_brk {
             // 特に何もしない
              process.set_heap_end(addr);
-             return addr;
+             return Ok(addr);
         }
 
-        // 拡大
-        // Note: 実際の物理メモリ割り当てが実装されていないため、
-        // アクセスするとページフォールトになる可能性がある。
+        // 拡大時にページをマップする
+        let start_page = (current_brk + 4095) & !4095;
+        let end_page = (addr + 4095) & !4095;
+
+        if end_page > start_page {
+            let size = end_page - start_page;
+            // メモリ割り当て（書き込み可能）
+            if let Err(_) = crate::mem::paging::map_and_copy_segment(
+                start_page,
+                0,
+                size,
+                &[],
+                true
+            ) {
+                 return Err(ENOSYS);
+            }
+        }
 
         process.set_heap_end(addr);
-        addr
-    }).unwrap_or(ENOSYS)
+        Ok(addr)
+    });
+
+    match result {
+        Some(Ok(addr)) => addr,
+        Some(Err(err)) => err,
+        None => ENOSYS,
+    }
 }
 
 /// Forkシステムコール
