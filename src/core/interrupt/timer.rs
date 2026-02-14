@@ -14,6 +14,9 @@ pub extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptSta
     // タイマーカウンタを増加
     let _ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
 
+    // ローディングスピナーを更新
+    crate::util::loading::update_spinner();
+
     // スケジューラのティックを実行
     // タイムスライスが尽きた場合はプリエンプトを行う
     let should_schedule = crate::task::scheduler_tick();
