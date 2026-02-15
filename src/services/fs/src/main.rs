@@ -8,6 +8,7 @@ use core::mem::size_of;
 
 use swiftlib::io;
 use swiftlib::ipc;
+use swiftlib::task;
 
 mod common;
 mod initfs;
@@ -124,6 +125,12 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
 
     loop {
         let (sender, len) = ipc::ipc_recv(&mut recv_buf.0);
+
+        // EAGAIN (メッセージなし) の場合はスキップ
+        // EAGAIN時、sender=0xFFFFFFFF, len=0xFFFFFFFD になる
+        if sender == 0xFFFFFFFF || len == 0xFFFFFFFD {
+            continue;
+        }
 
         if sender != 0 && (len as usize) >= size_of::<FsRequest>() {
             let req: FsRequest = unsafe { core::ptr::read(recv_buf.0.as_ptr() as *const _) };
