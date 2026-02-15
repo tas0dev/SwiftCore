@@ -92,13 +92,14 @@ pub fn brk(addr: u64) -> u64 {
 
         if end_page > start_page {
             let size = end_page - start_page;
-            // メモリ割り当て（書き込み可能）
+            // メモリ割り当て（書き込み可能、実行不可）
             if let Err(_) = crate::mem::paging::map_and_copy_segment(
                 start_page,
                 0,
                 size,
                 &[],
-                true
+                true,
+                false
             ) {
                  return Err(ENOSYS);
             }
