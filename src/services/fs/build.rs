@@ -17,6 +17,9 @@ fn main() {
     // 静的リンクを指定し、PIEを無効化する
     println!("cargo:rustc-link-arg=-static");
     println!("cargo:rustc-link-arg=-no-pie");
+    
+    // 重複シンボルを許可（最初に見つかったものを使用）
+    println!("cargo:rustc-link-arg=--allow-multiple-definition");
 
     // ライブラリをリンク
     println!("cargo:rustc-link-lib=static=c"); // libc.a
