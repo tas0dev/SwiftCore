@@ -234,6 +234,7 @@ pub fn map_and_copy_segment(
     memsz: u64,
     src: &[u8],
     writable: bool,
+    executable: bool,
 ) -> Result<()> {
     use crate::mem::frame;
     use crate::result::{Kernel, Memory};
@@ -338,21 +339,29 @@ pub fn map_and_copy_segment(
             }
         }
         // セグメントのコピーと初期化が完了したら、最終的なフラグを設定
-        if !writable {
-            if let Some(ref mut pt) = PAGE_TABLE.lock().as_mut() {
-                // 読み取り専用: PRESENT + USER_ACCESSIBLE (WRITABLEを外す)
-                let new_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
-                crate::debug!("Updating page {:#x} to read-only (flags={:?})", page_addr, new_flags);
-                unsafe {
-                    match pt.update_flags(page, new_flags) {
-                        Ok(flush) => flush.flush(),
-                        Err(e) => crate::warn!("Failed to update flags for page {:#x}: {:?}", page_addr, e),
-                    }
+        if let Some(ref mut pt) = PAGE_TABLE.lock().as_mut() {
+            let mut new_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+            
+            if writable {
+                new_flags |= PageTableFlags::WRITABLE;
+            }
+            
+            // NX (No-Execute) bit: set it for non-executable pages
+            if !executable {
+                new_flags |= PageTableFlags::NO_EXECUTE;
+            }
+            
+            crate::debug!(
+                "Updating page {:#x} flags: writable={}, executable={}, flags={:?}",
+                page_addr, writable, executable, new_flags
+            );
+            
+            unsafe {
+                match pt.update_flags(page, new_flags) {
+                    Ok(flush) => flush.flush(),
+                    Err(e) => crate::warn!("Failed to update flags for page {:#x}: {:?}", page_addr, e),
                 }
             }
-        } else {
-            // 書き込み可能な場合も最終フラグを確認
-            crate::debug!("Page {:#x} remains writable", page_addr);
         }
         page_addr += 4096;
     }
