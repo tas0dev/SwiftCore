@@ -16,6 +16,8 @@ pub mod task;
 pub mod time;
 /// 入出力関連のシステムコール
 pub mod io;
+/// プロセス管理関連のシステムコール
+pub mod process;
 pub mod cfunc;
 
 use core::panic::PanicInfo;
