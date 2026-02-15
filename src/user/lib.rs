@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(alloc_error_handler)]
 
 extern crate alloc;
 
@@ -66,3 +65,4 @@ unsafe impl GlobalAlloc for NewlibAllocator {
 
 #[global_allocator]
 static ALLOCATOR: NewlibAllocator = NewlibAllocator;
+
