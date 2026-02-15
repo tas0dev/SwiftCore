@@ -7,12 +7,11 @@ cd "$(dirname "$0")/.."
 # initfsディレクトリの場所
 INITFS_DIR="fs"
 OUTPUT_IMG="target/swiftCore.img"
-SIZE="128M"
+SIZE="256M"
 
 echo "Creating disk image: $OUTPUT_IMG (Source: $INITFS_DIR)"
 
 # ターゲットディレクトリがない場合は作成
-# shellcheck disable=SC2046
 mkdir -p $(dirname "$OUTPUT_IMG")
 
 # mke2fsが利用可能か確認
@@ -30,4 +29,3 @@ fi
 mke2fs -t ext2 -b 4096 -d "$INITFS_DIR" -L swiftCore -F "$OUTPUT_IMG" "$SIZE"
 
 echo "Done."
-

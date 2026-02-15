@@ -103,6 +103,9 @@ fn main() {
             panic!("failed to execute mke2fs: {e}. Please install e2fsprogs (mke2fs).");
         }
     }
+    
+    let mkimage_script = manifest_dir.join("scripts/make_image.sh");
+    let _ = Command::new(mkimage_script).status();
 }
 
 fn build_newlib(src_dir: &Path) {
@@ -195,7 +198,10 @@ fn build_newlib(src_dir: &Path) {
 fn build_user_libs(user_dir: &Path, libc_dir: &Path) {
     println!("Building user libs...");
 
-    // 1. crt0.o のビルド
+    if !libc_dir.exists() {
+        fs::create_dir_all(libc_dir).expect("Failed to create libc dir");
+    }
+
     let crt_src = user_dir.join("crt.rs");
     let crt_obj = libc_dir.join("crt0.o");
 
