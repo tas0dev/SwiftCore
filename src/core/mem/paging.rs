@@ -259,9 +259,10 @@ pub fn map_and_copy_segment(
              // Already mapped. Ensure it is writable for loading.
              phys_frame_addr = translate_addr(VirtAddr::new(page_addr)).unwrap().as_u64();
              
-             // Temporarily map as writable if not already? 
-             // We can just update flags to PRESENT | USER | WRITABLE
-             let flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE;
+             // Temporarily map as writable for loading, but preserve execute permission
+             // to avoid conflicts with final flags
+             let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE;
+             // Don't set NO_EXECUTE during loading - we'll set it in the final flag update if needed
              
              if let Some(ref mut pt) = PAGE_TABLE.lock().as_mut() {
                  unsafe {
@@ -357,9 +358,16 @@ pub fn map_and_copy_segment(
             );
             
             unsafe {
-                match pt.update_flags(page, new_flags) {
+                // まず既存のマッピングを解除
+                if let Ok((_, flush)) = pt.unmap(page) {
+                    flush.flush();
+                }
+                
+                // 同じ物理フレームに新しいフラグで再マップ
+                let phys_frame = PhysFrame::containing_address(x86_64::PhysAddr::new(phys_frame_addr));
+                match pt.map_to(page, phys_frame, new_flags, &mut *crate::mem::frame::FRAME_ALLOCATOR.lock().as_mut().unwrap()) {
                     Ok(flush) => flush.flush(),
-                    Err(e) => crate::warn!("Failed to update flags for page {:#x}: {:?}", page_addr, e),
+                    Err(e) => crate::warn!("Failed to remap page {:#x}: {:?}", page_addr, e),
                 }
             }
         }
