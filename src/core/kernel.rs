@@ -18,7 +18,6 @@ fn kernel_main() -> ! {
     util::log::set_level(LogLevel::Debug);
     debug!("Kernel started");
 
-    /*
     // .service ファイルを自動実行
     for entry in entries() {
         if entry.name.ends_with(".service") {
@@ -39,7 +38,6 @@ fn kernel_main() -> ! {
     }
     let test_elf_path = "test_app.elf\0";
     exec_kernel(test_elf_path.as_ptr() as u64);
-    */
 
     loop {
         x86_64::instructions::hlt();

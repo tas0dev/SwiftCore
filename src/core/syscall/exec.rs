@@ -55,11 +55,12 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                         let src_off = ph.p_offset as usize;
                         let flags = ph.p_flags;
                         let writable = (flags & 0x2) != 0;
+                        let executable = (flags & 0x1) != 0;
 
                         crate::debug!("Mapping seg {} -> {:#x} (filesz={}, memsz={})", i, vaddr, filesz, memsz);
                         let seg_src = &data[src_off..src_off + filesz as usize];
 
-                        if let Err(e) = crate::mem::paging::map_and_copy_segment(vaddr, filesz, memsz, seg_src, writable) {
+                        if let Err(e) = crate::mem::paging::map_and_copy_segment(vaddr, filesz, memsz, seg_src, writable, executable) {
                             crate::warn!("Failed to map segment: {:?}", e);
                             return crate::syscall::types::EINVAL;
                         }
@@ -156,14 +157,14 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         crate::debug!("Allocating user stack: base={:#x}, top={:#x}, size={} pages, rsp={:#x}",
                       stack_base_vaddr, stack_end_vaddr, stack_size_pages, initial_rsp);
 
-        // Map the lower 7 pages as zero-filled
-        if let Err(e) = crate::mem::paging::map_and_copy_segment(stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true) {
+        // Map the lower 7 pages as zero-filled (writable, non-executable stack)
+        if let Err(e) = crate::mem::paging::map_and_copy_segment(stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true, false) {
              crate::warn!("Failed to allocate user stack lower: {:?}", e);
              return crate::syscall::types::EINVAL;
         }
-        // Map the top page with args
+        // Map the top page with args (writable, non-executable stack)
         let top_page_vaddr = stack_end_vaddr - 4096;
-        if let Err(e) = crate::mem::paging::map_and_copy_segment(top_page_vaddr, 4096, 4096, &page_data, true) {
+        if let Err(e) = crate::mem::paging::map_and_copy_segment(top_page_vaddr, 4096, 4096, &page_data, true, false) {
              crate::warn!("Failed to allocate user stack top: {:?}", e);
              return crate::syscall::types::EINVAL;
         }
