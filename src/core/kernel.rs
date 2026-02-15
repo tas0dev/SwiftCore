@@ -15,7 +15,7 @@ static mut KERNEL_THREAD_STACK: KernelStack = KernelStack([0; KERNEL_THREAD_STAC
 
 /// カーネルメイン関数
 fn kernel_main() -> ! {
-    util::log::set_level(LogLevel::Debug);
+    util::log::set_level(LogLevel::Info);
     debug!("Kernel started");
 
     // .service ファイルを自動実行
