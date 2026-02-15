@@ -177,7 +177,7 @@ pub fn find_process_by_name(name_ptr: u64, len: u64) -> u64 {
     };
     
     // プロセスリストを検索
-    // 注: 本来はロックが必要だが、簡易実装としてそのまま検索
+    // TODO: 直接タスク管理モジュールにアクセスするのはリスキーなのでロックをかける
     // taskモジュールに検索関数を追加するのが望ましい
     task::find_process_id_by_name(name).map(|pid| pid.as_u64()).unwrap_or(0)
 }
