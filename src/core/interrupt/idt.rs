@@ -130,9 +130,19 @@ extern "x86-interrupt" fn bound_range_exceeded_handler(stack_frame: InterruptSta
 }
 
 extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFrame) {
-    error!("EXCEPTION: INVALID OPCODE");
+    // ユーザーモードかチェック（code_segmentのRPLビットを確認）
+    let is_user_mode = stack_frame.code_segment.rpl() == x86_64::PrivilegeLevel::Ring3;
+    
+    error!("EXCEPTION: INVALID OPCODE ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     debug!("{:#?}", stack_frame);
-    halt_cpu();
+    
+    if is_user_mode {
+        error!("Terminating faulting user process");
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn device_not_available_handler(stack_frame: InterruptStackFrame) {
@@ -172,17 +182,29 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
-    error!("EXCEPTION: STACK SEGMENT FAULT");
+    let is_user_mode = stack_frame.code_segment.rpl() == x86_64::PrivilegeLevel::Ring3;
+    
+    error!("EXCEPTION: STACK SEGMENT FAULT ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     error!("Error code: {:#x}", error_code);
     debug!("{:#?}", stack_frame);
-    halt_cpu();
+    
+    if is_user_mode {
+        error!("Terminating faulting user process");
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn general_protection_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
-    error!("EXCEPTION: GENERAL PROTECTION FAULT");
+    let is_user_mode = stack_frame.code_segment.rpl() == x86_64::PrivilegeLevel::Ring3;
+    
+    error!("EXCEPTION: GENERAL PROTECTION FAULT ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     error!("Error code: {:#x}", error_code);
 
     // エラーコードの詳細を解析
@@ -202,7 +224,13 @@ extern "x86-interrupt" fn general_protection_fault_handler(
            index);
 
     debug!("{:#?}", stack_frame);
-    halt_cpu();
+    
+    if is_user_mode {
+        error!("Terminating faulting user process");
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn page_fault_handler(
@@ -213,26 +241,38 @@ extern "x86-interrupt" fn page_fault_handler(
     use x86_64::VirtAddr;
 
     let faulting_addr = Cr2::read().unwrap_or(VirtAddr::new(0));
+    let is_user_mode = error_code.contains(x86_64::structures::idt::PageFaultErrorCode::USER_MODE);
 
-    error!("EXCEPTION: PAGE FAULT");
+    error!("EXCEPTION: PAGE FAULT ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     error!("Accessed address: {:#x}", faulting_addr.as_u64());
     error!("Error code: {:?}", error_code);
     error!("  Present: {}, Write: {}, User: {}, Reserved: {}, Instruction: {}",
            error_code.contains(x86_64::structures::idt::PageFaultErrorCode::PROTECTION_VIOLATION),
            error_code.contains(x86_64::structures::idt::PageFaultErrorCode::CAUSED_BY_WRITE),
-           error_code.contains(x86_64::structures::idt::PageFaultErrorCode::USER_MODE),
+           is_user_mode,
            error_code.contains(x86_64::structures::idt::PageFaultErrorCode::MALFORMED_TABLE),
            error_code.contains(x86_64::structures::idt::PageFaultErrorCode::INSTRUCTION_FETCH));
 
-    // フォルトしたアドレスの周辺のページテーブルエントリを確認
     if let Some(phys) = crate::mem::paging::translate_addr(faulting_addr) {
         error!("  Virtual {:#x} is mapped to physical {:#x}", faulting_addr.as_u64(), phys.as_u64());
     } else {
         error!("  Virtual {:#x} is NOT mapped", faulting_addr.as_u64());
     }
 
-    debug!("{:#?}", stack_frame);
-    halt_cpu();
+    if is_user_mode {
+        // ユーザーモードでのページフォルト: プロセスを終了
+        error!("Terminating faulting user process");
+        debug!("{:#?}", stack_frame);
+        
+        // 現在のプロセスを終了させる
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        // カーネルモードでのページフォルト: システム全体を停止
+        error!("FATAL: Page fault in kernel mode!");
+        debug!("{:#?}", stack_frame);
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn x87_floating_point_handler(stack_frame: InterruptStackFrame) {
