@@ -13,9 +13,22 @@ pub fn build_apps(apps_dir: &Path, output_dir: &Path, extension: &str) {
         Err(_) => return,
     };
 
+    // START_TEST_APP環境変数をチェック
+    let run_tests = std::env::var("START_TEST_APP")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
+            continue;
+        }
+
+        let app_name = path.file_name().unwrap().to_string_lossy();
+        
+        // testsディレクトリはSTART_TEST_APP=trueの場合のみビルド
+        if app_name == "tests" && !run_tests {
+            println!("Skipping tests app (START_TEST_APP not enabled)");
             continue;
         }
 
@@ -24,7 +37,6 @@ pub fn build_apps(apps_dir: &Path, output_dir: &Path, extension: &str) {
             continue;
         }
 
-        let app_name = path.file_name().unwrap().to_string_lossy();
         println!("Building app: {}", app_name);
 
         // アプリのソースファイルを明示的に監視

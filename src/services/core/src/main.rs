@@ -31,6 +31,12 @@ struct ServiceDef {
     order: u32,
 }
 
+/// テストアプリ定義
+struct TestApp {
+    name: &'static str,
+    path: &'static str,
+}
+
 /// 起動するサービスのリスト（index.tomlから生成する想定）
 /// 現在は静的に定義
 const SERVICES: &[ServiceDef] = &[
@@ -42,6 +48,22 @@ const SERVICES: &[ServiceDef] = &[
     // 将来的には他のサービスも追加
     // ServiceDef { name: "net.service", path: "net.service", order: 20 },
 ];
+
+/// テストアプリケーションのリスト
+/// START_TEST_APP環境変数がtrueの場合のみビルドに含まれる
+#[cfg(feature = "run_tests")]
+const TEST_APPS: &[TestApp] = &[
+    TestApp {
+        name: "tests",
+        path: "tests.elf",
+    },
+];
+
+#[cfg(not(feature = "run_tests"))]
+const TEST_APPS: &[TestApp] = &[];
+
+/// テストアプリを起動するかどうかのフラグ
+const START_TEST_APP: bool = true;
 
 /// サービスを起動する
 fn start_service(service: &ServiceDef) -> Result<u64, &'static str> {
@@ -83,8 +105,25 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     
     println!("[CORE] All services started. Entering monitoring loop...");
     
+    // テストアプリケーションを起動（feature有効時のみ）
+    if !TEST_APPS.is_empty() {
+        println!("[CORE] Starting test applications...");
+        for test in TEST_APPS.iter() {
+            println!("[CORE] Running test: {}", test.name);
+            match process::exec(test.path) {
+                Ok(pid) => {
+                    println!("[CORE] Test {} started with PID {}", test.name, pid);
+                }
+                Err(_) => {
+                    println!("[CORE] Failed to start test {}", test.name);
+                }
+            }
+            task::sleep(100);
+        }
+        println!("[CORE] All tests started.");
+    }
+    
     // サービス監視ループ
-    // 将来的には、サービスのクラッシュ検出や再起動を実装
     loop {
         task::sleep(1000); // 1秒ごとに監視
         // TODO: サービスの状態チェック

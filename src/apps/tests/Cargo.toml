@@ -1,10 +1,10 @@
 [package]
-name = "test_app"
+name = "tests"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "test_app"
+name = "tests"
 path = "src/main.rs"
 test = false
 bench = false
@@ -19,4 +19,3 @@ panic = "abort"
 panic = "abort"
 opt-level = "z"
 lto = true
-
