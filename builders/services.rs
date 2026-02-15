@@ -6,6 +6,7 @@ use super::utils::{emit_rerun_if_changed, find_binary_in_dir, find_target_spec};
 
 /// サービスインデックスの情報
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ServiceEntry {
     pub name: String,
     pub dir: String,

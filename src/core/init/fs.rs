@@ -142,7 +142,11 @@ fn data_block_number(
 }
 
 const READ_BUFFER_SIZE: usize = 64 * 1024;
-static mut READ_BUFFER: [u8; READ_BUFFER_SIZE] = [0; READ_BUFFER_SIZE];
+
+#[repr(align(16))]
+struct ReadBuffer([u8; READ_BUFFER_SIZE]);
+
+static mut READ_BUFFER: ReadBuffer = ReadBuffer([0; READ_BUFFER_SIZE]);
 
 fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<&'static [u8]> {
     let inode = inode(image, sb, inode_num)?;
@@ -154,20 +158,36 @@ fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<&'sta
     }
     let size = inode.size as usize;
     if size > READ_BUFFER_SIZE {
+        crate::warn!("File size {} exceeds buffer size {}", size, READ_BUFFER_SIZE);
         return None;
     }
     let blocks_needed = (size + sb.block_size as usize - 1) / sb.block_size as usize;
     let mut written = 0usize;
 
+    crate::debug!("read_inode_data: inode={}, size={}, blocks_needed={}", inode_num, size, blocks_needed);
+
     for block_idx in 0..blocks_needed {
         let block_num = data_block_number(image, sb, inode, block_idx)?;
         if block_num == 0 {
+            crate::warn!("Block {} is zero for inode {}", block_idx, inode_num);
             return None;
         }
         let block = block_slice(image, sb.block_size, block_num)?;
         let to_copy = core::cmp::min(block.len(), size - written);
+        
+        crate::debug!("  block_idx={}, block_num={}, to_copy={}, written={}", 
+                     block_idx, block_num, to_copy, written);
+        
         unsafe {
-            READ_BUFFER[written..written + to_copy].copy_from_slice(&block[..to_copy]);
+            let dst = core::ptr::addr_of_mut!(READ_BUFFER)
+                .cast::<ReadBuffer>()
+                .cast::<u8>()
+                .add(written);
+            core::ptr::copy_nonoverlapping(
+                block.as_ptr(),
+                dst,
+                to_copy
+            );
         }
         written += to_copy;
         if written >= size {
@@ -175,7 +195,10 @@ fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<&'sta
         }
     }
 
-    unsafe { Some(&READ_BUFFER[..size]) }
+    unsafe { 
+        let buf_ptr = core::ptr::addr_of!(READ_BUFFER).cast::<ReadBuffer>();
+        Some(core::slice::from_raw_parts((*buf_ptr).0.as_ptr(), size))
+    }
 }
 
 impl<'a> FsEntries<'a> {
