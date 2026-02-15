@@ -334,3 +334,10 @@ pub fn start_scheduling() -> ! {
         panic!("No threads to schedule!");
     }
 }
+
+/// プロセス終了用のエイリアス（ページフォルトハンドラなどから呼び出される）
+///
+/// 現在のプロセス/スレッドを終了させる
+pub fn exit_current_process(exit_code: i32) -> ! {
+    exit_current_task(exit_code as u64)
+}
