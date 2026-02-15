@@ -156,6 +156,16 @@ pub fn build_service(
         println!("  Using default target: {}", default_target);
     }
 
+    // core.serviceの場合、START_TEST_APP環境変数をチェック
+    if service.name == "core" {
+        if let Ok(val) = std::env::var("START_TEST_APP") {
+            if val == "true" || val == "1" {
+                cmd.arg("--features").arg("run_tests");
+                println!("  Enabling run_tests feature for core.service");
+            }
+        }
+    }
+
     let output = cmd
         .current_dir(&service_dir)
         .output()
