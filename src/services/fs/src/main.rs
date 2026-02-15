@@ -107,7 +107,7 @@ fn vfs_error_to_errno(err: VfsError) -> i64 {
 
 #[no_mangle]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
-    println!("[FS] Service Started (VFS version).");
+    println!("[FS] Service Started.");
 
     // InitFSを初期化
     let mut initfs = InitFs::new();

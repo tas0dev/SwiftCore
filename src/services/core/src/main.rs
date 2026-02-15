@@ -6,7 +6,7 @@ extern crate alloc;
 use core::fmt::{self, Write};
 use swiftlib::io;
 use swiftlib::task;
-use swiftlib::sys::SyscallNumber;
+use swiftlib::process;
 
 // 簡易的な標準出力ライター
 struct Stdout;
@@ -48,37 +48,20 @@ fn start_service(service: &ServiceDef) -> Result<u64, &'static str> {
     println!("[CORE] Starting service: {} (order={})", service.name, service.order);
     
     // execシステムコールを使用してサービスを起動
-    let pid = unsafe {
-        let path_ptr = service.path.as_ptr() as u64;
-        let path_len = service.path.len() as u64;
-        let name_ptr = service.name.as_ptr() as u64;
-        let name_len = service.name.len() as u64;
-        
-        let result: u64;
-        core::arch::asm!(
-            "syscall",
-            in("rax") SyscallNumber::Exec as u64,
-            in("rdi") path_ptr,
-            in("rsi") path_len,
-            in("rdx") name_ptr,
-            in("r10") name_len,
-            lateout("rax") result,
-            options(nostack),
-        );
-        result
-    };
-    
-    if pid == u64::MAX {
-        println!("[CORE] Failed to start {}", service.name);
-        return Err("exec failed");
+    match process::exec(service.path) {
+        Ok(pid) => {
+            println!("[CORE] Started {} with PID {}", service.name, pid);
+            
+            // サービスが初期化されるまで少し待つ
+            task::sleep(100);
+            
+            Ok(pid)
+        }
+        Err(_) => {
+            println!("[CORE] Failed to start {}", service.name);
+            Err("exec failed")
+        }
     }
-    
-    println!("[CORE] Started {} with PID {}", service.name, pid);
-    
-    // サービスが初期化されるまで少し待つ
-    task::sleep(100);
-    
-    Ok(pid)
 }
 
 #[no_mangle]
@@ -101,7 +84,7 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     println!("[CORE] All services started. Entering monitoring loop...");
     
     // サービス監視ループ
-    // TODO: サービスのクラッシュ検出や再起動を実装
+    // 将来的には、サービスのクラッシュ検出や再起動を実装
     loop {
         task::sleep(1000); // 1秒ごとに監視
         // TODO: サービスの状態チェック
