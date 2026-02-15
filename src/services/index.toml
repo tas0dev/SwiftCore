@@ -1,0 +1,12 @@
+# サービスの定義
+#
+# 形式:
+# [core.service.サービス名]
+# description = サービスの説明
+# dir = サービスのディレクトリ
+# fs = サービスをどのファイルシステムに配置するか（initfsかdisk）
+
+[core.service.fs]
+description = ファイルシステムの管理とディスクの管理（ディスクのマウントやアンマウントなど）
+dir = fs
+fs = initfs
