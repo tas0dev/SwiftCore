@@ -20,11 +20,11 @@ SwiftCoreを実用レベルに引き上げるための実装項目リスト
   - [ ] NVMeドライバ
 - [x] ディスクサービスとExt2の統合
   - [x] BlockDevice実装（IPCベース）
-- [ ] ディレクトリ操作システムコール
-  - [ ] mkdir
-  - [ ] rmdir
-  - [ ] readdir
-  - [ ] chdir
+- [x] ディレクトリ操作システムコール
+  - [x] mkdir
+  - [x] rmdir
+  - [x] readdir
+  - [x] chdir
 - [ ] パーミッション管理
   - [ ] chmod
   - [ ] chown
