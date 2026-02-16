@@ -50,6 +50,14 @@ pub enum SyscallNumber {
     PortIn = 21,
     /// I/Oポート出力
     PortOut = 22,
+    /// ディレクトリ作成
+    Mkdir = 23,
+    /// ディレクトリ削除
+    Rmdir = 24,
+    /// ディレクトリエントリ読み取り
+    Readdir = 25,
+    /// カレントディレクトリ変更
+    Chdir = 26,
 }
 
 #[inline(always)]

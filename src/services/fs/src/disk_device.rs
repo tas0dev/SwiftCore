@@ -1,0 +1,110 @@
+//! ディスクサービスを使用したブロックデバイス実装
+
+use core::mem::size_of;
+
+use swiftlib::ipc;
+
+use crate::common::vfs::{VfsError, VfsResult};
+use crate::ext2::BlockDevice;
+
+/// ディスク操作リクエスト
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct DiskRequest {
+    op: u64,
+    disk_id: u64,
+    lba: u64,
+    count: u64,
+}
+
+impl DiskRequest {
+    const OP_READ: u64 = 1;
+    const OP_WRITE: u64 = 2;
+    const OP_INFO: u64 = 3;
+}
+
+/// ディスク操作レスポンス
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct DiskResponse {
+    status: i64,
+    len: u64,
+    data: [u8; 512],
+}
+
+/// ディスクサービスを使用したブロックデバイス
+pub struct DiskServiceDevice {
+    disk_service_pid: u64,
+    disk_id: u64,
+    sector_size: usize,
+}
+
+impl DiskServiceDevice {
+    /// 新しいディスクデバイスを作成
+    pub fn new(disk_service_pid: u64, disk_id: u64) -> Self {
+        Self {
+            disk_service_pid,
+            disk_id,
+            sector_size: 512,
+        }
+    }
+
+    /// セクタを読み取る（内部用）
+    fn read_sector(&self, lba: u64, buf: &mut [u8]) -> VfsResult<()> {
+        if buf.len() < 512 {
+            return Err(VfsError::InvalidArgument);
+        }
+
+        let req = DiskRequest {
+            op: DiskRequest::OP_READ,
+            disk_id: self.disk_id,
+            lba,
+            count: 1,
+        };
+
+        let req_slice = unsafe {
+            core::slice::from_raw_parts(&req as *const _ as *const u8, size_of::<DiskRequest>())
+        };
+
+        // リクエストを送信
+        let result = ipc::ipc_send(self.disk_service_pid, req_slice);
+        if result != 0 {
+            return Err(VfsError::IoError);
+        }
+
+        // レスポンスを受信
+        let mut resp_buf = [0u8; size_of::<DiskResponse>()];
+        let (sender, len) = ipc::ipc_recv(&mut resp_buf);
+
+        if sender != self.disk_service_pid || (len as usize) < size_of::<DiskResponse>() {
+            return Err(VfsError::IoError);
+        }
+
+        let resp: DiskResponse = unsafe {
+            core::ptr::read(resp_buf.as_ptr() as *const DiskResponse)
+        };
+
+        if resp.status != 0 {
+            return Err(VfsError::IoError);
+        }
+
+        // データをコピー
+        buf[..512].copy_from_slice(&resp.data);
+        Ok(())
+    }
+}
+
+impl BlockDevice for DiskServiceDevice {
+    fn block_size(&self) -> usize {
+        self.sector_size
+    }
+
+    fn read_block(&self, block_num: u64, buf: &mut [u8]) -> Result<(), ()> {
+        self.read_sector(block_num, buf).map_err(|_| ())
+    }
+
+    fn write_block(&mut self, _block_num: u64, _buf: &[u8]) -> Result<(), ()> {
+        // 読み取り専用
+        Err(())
+    }
+}

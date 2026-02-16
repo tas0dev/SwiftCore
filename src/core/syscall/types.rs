@@ -46,6 +46,14 @@ pub enum SyscallNumber {
     PortIn = 21,
     /// I/Oポート出力 (arg0=port, arg1=value, arg2=size)
     PortOut = 22,
+    /// ディレクトリ作成 (arg0=path_ptr, arg1=mode)
+    Mkdir = 23,
+    /// ディレクトリ削除 (arg0=path_ptr)
+    Rmdir = 24,
+    /// ディレクトリエントリ読み取り (arg0=fd, arg1=buf_ptr, arg2=buf_len)
+    Readdir = 25,
+    /// カレントディレクトリ変更 (arg0=path_ptr)
+    Chdir = 26,
 }
 
 /// 成功

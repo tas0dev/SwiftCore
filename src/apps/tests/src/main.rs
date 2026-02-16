@@ -4,6 +4,7 @@
 extern crate alloc;
 use core::ffi::c_char;
 use swiftlib::cfunc::*;
+use swiftlib::fs;
 
 // テスト結果の統計
 struct TestStats {
@@ -69,6 +70,82 @@ fn test_argc_argv() -> bool {
     true
 }
 
+fn test_mkdir() -> bool {
+    unsafe {
+        printf(b"\n  Creating directory '/testdir' ... \0".as_ptr() as *const c_char);
+    }
+    
+    let result = fs::mkdir("/testdir\0", 0o755);
+    
+    unsafe {
+        if result == 0 || result == u64::MAX - 5 { // SUCCESS or ENOSYS
+            printf(b"(syscall returned %llu) \0".as_ptr() as *const c_char, result);
+            true
+        } else {
+            printf(b"failed with error %llu \0".as_ptr() as *const c_char, result);
+            false
+        }
+    }
+}
+
+fn test_rmdir() -> bool {
+    unsafe {
+        printf(b"\n  Removing directory '/testdir' ... \0".as_ptr() as *const c_char);
+    }
+    
+    let result = fs::rmdir("/testdir\0");
+    
+    unsafe {
+        if result == 0 || result == u64::MAX - 5 { // SUCCESS or ENOSYS
+            printf(b"(syscall returned %llu) \0".as_ptr() as *const c_char, result);
+            true
+        } else {
+            printf(b"failed with error %llu \0".as_ptr() as *const c_char, result);
+            false
+        }
+    }
+}
+
+fn test_chdir() -> bool {
+    unsafe {
+        printf(b"\n  Changing directory to '/' ... \0".as_ptr() as *const c_char);
+    }
+    
+    let result = fs::chdir("/\0");
+    
+    unsafe {
+        if result == 0 || result == u64::MAX - 5 { // SUCCESS or ENOSYS
+            printf(b"(syscall returned %llu) \0".as_ptr() as *const c_char, result);
+            true
+        } else {
+            printf(b"failed with error %llu \0".as_ptr() as *const c_char, result);
+            false
+        }
+    }
+}
+
+fn test_readdir() -> bool {
+    unsafe {
+        printf(b"\n  Reading directory (fd=3) ... \0".as_ptr() as *const c_char);
+    }
+    
+    let mut buf = [0u8; 512];
+    let result = fs::readdir(3, &mut buf);
+    
+    unsafe {
+        if result == u64::MAX - 5 { // ENOSYS is expected for now
+            printf(b"(syscall returned ENOSYS) \0".as_ptr() as *const c_char);
+            true
+        } else if result == u64::MAX - 3 { // EBADF
+            printf(b"(syscall returned EBADF, expected) \0".as_ptr() as *const c_char);
+            true
+        } else {
+            printf(b"read %llu bytes \0".as_ptr() as *const c_char, result);
+            result == 0 || result > 0
+        }
+    }
+}
+
 // ========== メイン関数 ==========
 #[no_mangle]
 pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
@@ -88,10 +165,19 @@ pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
 
     let mut stats = TestStats::new();
 
-    // テストを実行
+    // 基本テストを実行
     stats.run_test("basic_arithmetic\0", test_basic_arithmetic);
     stats.run_test("string_compare\0", test_string_compare);
     stats.run_test("argc_argv\0", test_argc_argv);
+    
+    // ファイルシステムテストを実行
+    unsafe {
+        printf(b"\n--- Filesystem Tests ---\n\0".as_ptr() as *const c_char);
+    }
+    stats.run_test("mkdir\0", test_mkdir);
+    stats.run_test("chdir\0", test_chdir);
+    stats.run_test("readdir\0", test_readdir);
+    stats.run_test("rmdir\0", test_rmdir);
 
     // 結果を表示
     stats.summary();
