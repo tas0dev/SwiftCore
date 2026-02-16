@@ -15,10 +15,18 @@ fs_type = "initfs"
 autostart = true
 order = 0
 
+[core.service.disk]
+description = "Disk I/O driver - ATA/IDE support"
+dir = "disk"
+fs_type = "initfs"
+autostart = false
+order = 5
+dependencies = []
+
 [core.service.fs]
 description = "Filesystem manager - handles VFS, initfs, ext2"
 dir = "fs"
 fs_type = "initfs"
 autostart = false
 order = 10
-dependencies = []
+dependencies = ["disk"]
