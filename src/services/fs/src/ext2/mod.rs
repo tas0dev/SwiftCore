@@ -102,6 +102,20 @@ struct Ext2DirEntry {
     // name: [u8]       // 可変長の名前（name_lenバイト）
 }
 
+/// ブロックグループディスクリプタ
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+struct Ext2GroupDesc {
+    bg_block_bitmap: u32,       // ブロックビットマップのブロック番号
+    bg_inode_bitmap: u32,       // inodeビットマップのブロック番号
+    bg_inode_table: u32,        // inodeテーブルの開始ブロック番号
+    bg_free_blocks_count: u16,  // 空きブロック数
+    bg_free_inodes_count: u16,  // 空きinode数
+    bg_used_dirs_count: u16,    // ディレクトリ数
+    bg_pad: u16,                // パディング
+    bg_reserved: [u32; 3],      // 予約
+}
+
 /// EXT2ファイルシステム
 pub struct Ext2Fs {
     device: Box<dyn BlockDevice>,
@@ -109,6 +123,8 @@ pub struct Ext2Fs {
     block_size: usize,
     inodes_per_group: u32,
     blocks_per_group: u32,
+    inode_size: usize,
+    group_desc_table: Vec<Ext2GroupDesc>,
 }
 
 impl Ext2Fs {
@@ -129,6 +145,44 @@ impl Ext2Fs {
         }
 
         let block_size = 1024 << superblock.s_log_block_size;
+        
+        // inodeサイズを取得（デフォルトは128バイト）
+        let inode_size = if superblock.s_rev_level >= 1 {
+            superblock.s_inode_size as usize
+        } else {
+            128
+        };
+
+        // ブロックグループディスクリプタテーブルを読み取る
+        let num_groups = ((superblock.s_blocks_count + superblock.s_blocks_per_group - 1) 
+            / superblock.s_blocks_per_group) as usize;
+        
+        let gdt_block = if block_size == 1024 { 2 } else { 1 };
+        let gdt_size = num_groups * core::mem::size_of::<Ext2GroupDesc>();
+        let gdt_blocks = (gdt_size + block_size - 1) / block_size;
+        
+        let mut gdt_buf = alloc::vec![0u8; gdt_blocks * block_size];
+        for i in 0..gdt_blocks {
+            let mut block_buf = alloc::vec![0u8; block_size];
+            let blocks_per_fs_block = block_size / device.block_size();
+            let start_block = (gdt_block + i) as u64 * blocks_per_fs_block as u64;
+            
+            for j in 0..blocks_per_fs_block {
+                let offset = j * device.block_size();
+                device.read_block(start_block + j as u64, &mut block_buf[offset..offset + device.block_size()])
+                    .map_err(|_| VfsError::IoError)?;
+            }
+            gdt_buf[i * block_size..(i + 1) * block_size].copy_from_slice(&block_buf);
+        }
+
+        let mut group_desc_table = Vec::new();
+        for i in 0..num_groups {
+            let offset = i * core::mem::size_of::<Ext2GroupDesc>();
+            let desc: Ext2GroupDesc = unsafe {
+                core::ptr::read((gdt_buf.as_ptr() as usize + offset) as *const Ext2GroupDesc)
+            };
+            group_desc_table.push(desc);
+        }
 
         Ok(Self {
             device,
@@ -136,6 +190,8 @@ impl Ext2Fs {
             block_size,
             inodes_per_group: superblock.s_inodes_per_group,
             blocks_per_group: superblock.s_blocks_per_group,
+            inode_size,
+            group_desc_table,
         })
     }
 
@@ -167,14 +223,104 @@ impl Ext2Fs {
 
         // inodeが所属するブロックグループを計算
         let inode_idx = inode_num - 1;
-        let group = inode_idx / self.inodes_per_group as u64;
+        let group = (inode_idx / self.inodes_per_group as u64) as usize;
         let local_idx = inode_idx % self.inodes_per_group as u64;
 
-        // ブロックグループディスクリプタを読み取る（簡略化のため省略）
-        // 実際にはブロックグループディスクリプタテーブルから
-        // inode テーブルの開始ブロックを取得する必要がある
+        if group >= self.group_desc_table.len() {
+            return Err(VfsError::NotFound);
+        }
 
-        // TODO: 実装を完成させる
+        // ブロックグループディスクリプタからinodeテーブルの開始ブロックを取得
+        let gd = &self.group_desc_table[group];
+        let inode_table_block = gd.bg_inode_table;
+
+        // inode テーブル内のオフセットを計算
+        let inode_offset = local_idx as usize * self.inode_size;
+        let block_offset = inode_offset / self.block_size;
+        let byte_offset = inode_offset % self.block_size;
+
+        // inodeを含むブロックを読み取る
+        let mut block_buf = alloc::vec![0u8; self.block_size];
+        self.read_fs_block(inode_table_block + block_offset as u32, &mut block_buf)?;
+
+        // inodeを抽出
+        let inode: Ext2Inode = unsafe {
+            core::ptr::read((block_buf.as_ptr() as usize + byte_offset) as *const Ext2Inode)
+        };
+
+        Ok(inode)
+    }
+
+    /// ブロックポインタからブロック番号を取得
+    fn get_block_num(&self, inode: &Ext2Inode, block_idx: u32) -> VfsResult<u32> {
+        // 直接ブロックポインタ（0-11）
+        if block_idx < 12 {
+            return Ok(inode.i_block[block_idx as usize]);
+        }
+
+        let ptrs_per_block = (self.block_size / 4) as u32;
+
+        // 間接ブロックポインタ（12）
+        if block_idx < 12 + ptrs_per_block {
+            let indirect_block = inode.i_block[12];
+            if indirect_block == 0 {
+                return Ok(0);
+            }
+
+            let mut block_buf = alloc::vec![0u8; self.block_size];
+            self.read_fs_block(indirect_block, &mut block_buf)?;
+
+            let offset = ((block_idx - 12) * 4) as usize;
+            let block_num = u32::from_le_bytes([
+                block_buf[offset],
+                block_buf[offset + 1],
+                block_buf[offset + 2],
+                block_buf[offset + 3],
+            ]);
+            return Ok(block_num);
+        }
+
+        // 二重間接ブロックポインタ（13）
+        if block_idx < 12 + ptrs_per_block + ptrs_per_block * ptrs_per_block {
+            let double_indirect = inode.i_block[13];
+            if double_indirect == 0 {
+                return Ok(0);
+            }
+
+            let idx = block_idx - 12 - ptrs_per_block;
+            let indirect_idx = idx / ptrs_per_block;
+            let block_offset = idx % ptrs_per_block;
+
+            // 最初の間接ブロックを読み取る
+            let mut block_buf = alloc::vec![0u8; self.block_size];
+            self.read_fs_block(double_indirect, &mut block_buf)?;
+
+            let offset = (indirect_idx * 4) as usize;
+            let indirect_block = u32::from_le_bytes([
+                block_buf[offset],
+                block_buf[offset + 1],
+                block_buf[offset + 2],
+                block_buf[offset + 3],
+            ]);
+
+            if indirect_block == 0 {
+                return Ok(0);
+            }
+
+            // 二番目の間接ブロックを読み取る
+            self.read_fs_block(indirect_block, &mut block_buf)?;
+
+            let offset = (block_offset * 4) as usize;
+            let block_num = u32::from_le_bytes([
+                block_buf[offset],
+                block_buf[offset + 1],
+                block_buf[offset + 2],
+                block_buf[offset + 3],
+            ]);
+            return Ok(block_num);
+        }
+
+        // 三重間接ブロックは未サポート
         Err(VfsError::NotSupported)
     }
 }
@@ -212,14 +358,117 @@ impl FileSystem for Ext2Fs {
         })
     }
 
-    fn lookup(&self, _parent_inode: u64, _name: &str) -> VfsResult<u64> {
-        // TODO: ディレクトリエントリを検索
-        Err(VfsError::NotSupported)
+    fn lookup(&self, parent_inode: u64, name: &str) -> VfsResult<u64> {
+        let parent = self.read_inode(parent_inode)?;
+        
+        // ディレクトリかチェック
+        if parent.i_mode & 0xF000 != EXT2_S_IFDIR {
+            return Err(VfsError::NotDirectory);
+        }
+
+        // ディレクトリの内容を読み取る
+        let size = parent.i_size as usize;
+        let mut data = alloc::vec![0u8; size];
+        
+        let mut read_offset = 0;
+        let mut block_idx = 0;
+        
+        while read_offset < size {
+            let block_num = self.get_block_num(&parent, block_idx)?;
+            if block_num == 0 {
+                break;
+            }
+            
+            let mut block_buf = alloc::vec![0u8; self.block_size];
+            self.read_fs_block(block_num, &mut block_buf)?;
+            
+            let to_copy = core::cmp::min(self.block_size, size - read_offset);
+            data[read_offset..read_offset + to_copy].copy_from_slice(&block_buf[..to_copy]);
+            
+            read_offset += to_copy;
+            block_idx += 1;
+        }
+
+        // ディレクトリエントリを走査
+        let mut offset = 0;
+        while offset < size {
+            if offset + core::mem::size_of::<Ext2DirEntry>() > size {
+                break;
+            }
+
+            let entry: Ext2DirEntry = unsafe {
+                core::ptr::read((data.as_ptr() as usize + offset) as *const Ext2DirEntry)
+            };
+
+            if entry.rec_len == 0 {
+                break;
+            }
+
+            if entry.inode != 0 && entry.name_len > 0 {
+                let name_offset = offset + core::mem::size_of::<Ext2DirEntry>();
+                if name_offset + entry.name_len as usize <= size {
+                    let entry_name = &data[name_offset..name_offset + entry.name_len as usize];
+                    
+                    if let Ok(entry_name_str) = core::str::from_utf8(entry_name) {
+                        if entry_name_str == name {
+                            return Ok(entry.inode as u64);
+                        }
+                    }
+                }
+            }
+
+            offset += entry.rec_len as usize;
+        }
+
+        Err(VfsError::NotFound)
     }
 
-    fn read(&self, _inode: u64, _offset: u64, _buf: &mut [u8]) -> VfsResult<usize> {
-        // TODO: ファイル読み取りを実装
-        Err(VfsError::NotSupported)
+    fn read(&self, inode: u64, offset: u64, buf: &mut [u8]) -> VfsResult<usize> {
+        let ext2_inode = self.read_inode(inode)?;
+        
+        // 通常ファイルかチェック
+        if ext2_inode.i_mode & 0xF000 != EXT2_S_IFREG {
+            return Err(VfsError::IsDirectory);
+        }
+
+        let file_size = ext2_inode.i_size as u64;
+        
+        if offset >= file_size {
+            return Ok(0); // EOF
+        }
+
+        let to_read = core::cmp::min(buf.len(), (file_size - offset) as usize);
+        
+        let start_block = (offset / self.block_size as u64) as u32;
+        let block_offset = (offset % self.block_size as u64) as usize;
+        
+        let mut bytes_read = 0;
+        let mut current_block = start_block;
+        
+        while bytes_read < to_read {
+            let block_num = self.get_block_num(&ext2_inode, current_block)?;
+            if block_num == 0 {
+                // スパースファイル - ゼロで埋める
+                let remaining = to_read - bytes_read;
+                let to_zero = core::cmp::min(remaining, self.block_size - block_offset);
+                buf[bytes_read..bytes_read + to_zero].fill(0);
+                bytes_read += to_zero;
+            } else {
+                let mut block_buf = alloc::vec![0u8; self.block_size];
+                self.read_fs_block(block_num, &mut block_buf)?;
+                
+                let start = if current_block == start_block { block_offset } else { 0 };
+                let remaining = to_read - bytes_read;
+                let to_copy = core::cmp::min(remaining, self.block_size - start);
+                
+                buf[bytes_read..bytes_read + to_copy].copy_from_slice(&block_buf[start..start + to_copy]);
+                bytes_read += to_copy;
+            }
+            
+            current_block += 1;
+        }
+
+        Ok(bytes_read)
     }
 
     fn write(&mut self, _inode: u64, _offset: u64, _buf: &[u8]) -> VfsResult<usize> {
@@ -227,9 +476,80 @@ impl FileSystem for Ext2Fs {
         Err(VfsError::ReadOnlyFs)
     }
 
-    fn readdir(&self, _inode: u64) -> VfsResult<Vec<DirEntry>> {
-        // TODO: ディレクトリ読み取りを実装
-        Err(VfsError::NotSupported)
+    fn readdir(&self, inode: u64) -> VfsResult<Vec<DirEntry>> {
+        let ext2_inode = self.read_inode(inode)?;
+        
+        // ディレクトリかチェック
+        if ext2_inode.i_mode & 0xF000 != EXT2_S_IFDIR {
+            return Err(VfsError::NotDirectory);
+        }
+
+        let size = ext2_inode.i_size as usize;
+        let mut data = alloc::vec![0u8; size];
+        
+        // ディレクトリの内容を読み取る
+        let mut read_offset = 0;
+        let mut block_idx = 0;
+        
+        while read_offset < size {
+            let block_num = self.get_block_num(&ext2_inode, block_idx)?;
+            if block_num == 0 {
+                break;
+            }
+            
+            let mut block_buf = alloc::vec![0u8; self.block_size];
+            self.read_fs_block(block_num, &mut block_buf)?;
+            
+            let to_copy = core::cmp::min(self.block_size, size - read_offset);
+            data[read_offset..read_offset + to_copy].copy_from_slice(&block_buf[..to_copy]);
+            
+            read_offset += to_copy;
+            block_idx += 1;
+        }
+
+        // ディレクトリエントリを解析
+        let mut entries = Vec::new();
+        let mut offset = 0;
+        
+        while offset < size {
+            if offset + core::mem::size_of::<Ext2DirEntry>() > size {
+                break;
+            }
+
+            let entry: Ext2DirEntry = unsafe {
+                core::ptr::read((data.as_ptr() as usize + offset) as *const Ext2DirEntry)
+            };
+
+            if entry.rec_len == 0 {
+                break;
+            }
+
+            if entry.inode != 0 && entry.name_len > 0 {
+                let name_offset = offset + core::mem::size_of::<Ext2DirEntry>();
+                if name_offset + entry.name_len as usize <= size {
+                    let entry_name = &data[name_offset..name_offset + entry.name_len as usize];
+                    
+                    if let Ok(name_str) = core::str::from_utf8(entry_name) {
+                        let file_type = match entry.file_type {
+                            1 => FileType::RegularFile,
+                            2 => FileType::Directory,
+                            7 => FileType::SymbolicLink,
+                            _ => FileType::RegularFile,
+                        };
+                        
+                        entries.push(DirEntry {
+                            name: String::from(name_str),
+                            inode: entry.inode as u64,
+                            file_type,
+                        });
+                    }
+                }
+            }
+
+            offset += entry.rec_len as usize;
+        }
+
+        Ok(entries)
     }
 
     fn create(&mut self, _parent_inode: u64, _name: &str, _mode: u16) -> VfsResult<u64> {
