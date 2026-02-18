@@ -1,39 +1,75 @@
-use crate::init;
-use crate::syscall::{EINVAL, ENOENT};
+//! ファイルシステム関連のシステムコール
 
-const MAX_PATH_LEN: usize = 256;
+use super::types::{ENOSYS, EBADF, SUCCESS};
 
-/// initfs 読み込み (path_ptr, path_len, buf_ptr, buf_len)
-pub fn read(path_ptr: u64, path_len: u64, buf_ptr: u64, buf_len: u64) -> u64 {
-    if path_ptr == 0 || buf_ptr == 0 {
-        return EINVAL;
+/// Openシステムコール（未実装）
+///
+/// ファイルを開く
+///
+/// # 引数
+/// - `_path_ptr`: ファイルパスへのポインタ
+/// - `_flags`: オープンフラグ
+///
+/// # 戻り値
+/// ファイルディスクリプタ、またはエラーコード
+pub fn open(_path_ptr: u64, _flags: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    ENOSYS
+}
+
+/// Closeシステムコール（未実装）
+///
+/// ファイルを閉じる
+///
+/// # 引数
+/// - `_fd`: ファイルディスクリプタ
+///
+/// # 戻り値
+/// 成功時はSUCCESS、エラー時はエラーコード
+pub fn close(_fd: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    if _fd < 3 {
+        // stdin/stdout/stderr は閉じられない
+        EBADF
+    } else {
+        ENOSYS
     }
+}
 
-    let path_len = path_len as usize;
-    let buf_len = buf_len as usize;
+/// Seekシステムコール（未実装）
+///
+/// ファイルの読み書き位置を変更する
+///
+/// # 引数
+/// - `_fd`: ファイルディスクリプタ
+/// - `_offset`: オフセット
+/// - `_whence`: 基準位置 (0=SEEK_SET, 1=SEEK_CUR, 2=SEEK_END)
+///
+/// # 戻り値
+/// 新しいファイル位置、またはエラーコード
+pub fn seek(_fd: u64, _offset: i64, _whence: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    ENOSYS
+}
 
-    if path_len == 0 || path_len > MAX_PATH_LEN {
-        return EINVAL;
-    }
+/// Fstatシステムコール（未実装）
+///
+/// ファイルの情報を取得する
+pub fn fstat(_fd: u64, _stat_ptr: u64) -> u64 {
+    ENOSYS
+}
 
-    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, path_len) };
-    let path = match core::str::from_utf8(path_bytes) {
-        Ok(s) => s,
-        Err(_) => return EINVAL,
-    };
-
-    let data = match init::fs::read(path) {
-        Some(d) => d,
-        None => return ENOENT,
-    };
-
-    if data.len() > buf_len {
-        return EINVAL;
-    }
-
-    unsafe {
-        core::ptr::copy_nonoverlapping(data.as_ptr(), buf_ptr as *mut u8, data.len());
-    }
-
-    data.len() as u64
+/// Statシステムコール（未実装）
+///
+/// ファイルの情報を取得する
+///
+/// # 引数
+/// - `_path_ptr`: ファイルパスへのポインタ
+/// - `_stat_ptr`: stat構造体へのポインタ
+///
+/// # 戻り値
+/// 成功時はSUCCESS、エラー時はエラーコード
+pub fn stat(_path_ptr: u64, _stat_ptr: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    ENOSYS
 }

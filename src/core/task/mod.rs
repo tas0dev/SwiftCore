@@ -7,22 +7,22 @@ pub mod ids;
 pub mod process;
 pub mod scheduler;
 pub mod thread;
-pub mod elf;
+pub mod usermode;
 
 pub use context::{switch_context, switch_to_thread, Context};
 pub use ids::{PrivilegeLevel, ProcessId, ProcessState, ThreadId, ThreadState};
 pub use process::{
-	add_process, for_each_process, process_count, remove_process, with_process, with_process_mut,
-	Process, ProcessTable,
+    add_process, find_process_id_by_name, for_each_process, process_count,
+    with_process, with_process_mut, Process, ProcessTable,
 };
 pub use scheduler::{
-	block_current_thread, disable_scheduler, enable_scheduler, init_scheduler, is_scheduler_enabled,
-	schedule, schedule_and_switch, scheduler_tick, set_time_slice, sleep_thread, start_scheduling,
-	terminate_thread, wake_thread, yield_now, Scheduler,
+    block_current_thread, disable_scheduler, enable_scheduler, exit_current_task, init_scheduler,
+    is_scheduler_enabled, schedule, schedule_and_switch, scheduler_tick, set_time_slice,
+    sleep_thread, start_scheduling, terminate_thread, wake_thread, yield_now, Scheduler,
 };
 pub use thread::{
-	add_thread, count_threads_by_state, current_thread_id, for_each_thread, peek_next_thread,
-	remove_thread, set_current_thread, thread_count, with_thread, with_thread_mut, Thread,
-	ThreadQueue,
+    add_thread, count_threads_by_state, current_thread_id, for_each_thread, peek_next_thread,
+    remove_thread, set_current_thread, thread_count, with_thread, with_thread_mut, Thread,
+    ThreadQueue,
 };
-pub use elf::{load_elf, spawn_service, LoadedElf};
+pub use usermode::jump_to_usermode;

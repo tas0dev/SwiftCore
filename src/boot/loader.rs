@@ -6,9 +6,37 @@ extern crate alloc;
 use swiftcore::{kernel_entry, BootInfo, MemoryRegion, MemoryType};
 use uefi::prelude::*;
 use uefi::proto::console::gop::GraphicsOutput;
+use linked_list_allocator::LockedHeap;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::alloc::{GlobalAlloc, Layout};
+
+struct BootAllocator {
+    kernel: LockedHeap,
+    use_kernel: AtomicBool,
+}
+
+unsafe impl GlobalAlloc for BootAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if self.use_kernel.load(Ordering::Relaxed) {
+             self.kernel.alloc(layout)
+        } else {
+             uefi::allocator::Allocator.alloc(layout)
+        }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if self.use_kernel.load(Ordering::Relaxed) {
+             self.kernel.dealloc(ptr, layout)
+        } else {
+             uefi::allocator::Allocator.dealloc(ptr, layout)
+        }
+    }
+}
 
 #[global_allocator]
-static ALLOCATOR: uefi::allocator::Allocator = uefi::allocator::Allocator;
+static ALLOCATOR: BootAllocator = BootAllocator {
+    kernel: LockedHeap::empty(),
+    use_kernel: AtomicBool::new(false),
+};
 
 static mut BOOT_INFO: BootInfo = BootInfo {
     physical_memory_offset: 0,
@@ -20,6 +48,8 @@ static mut BOOT_INFO: BootInfo = BootInfo {
     memory_map_addr: 0,
     memory_map_len: 0,
     memory_map_entry_size: 0,
+    allocator_addr: 0,
+    kernel_heap_addr: 0,
 };
 
 // メモリマップを静的に保存
@@ -31,7 +61,7 @@ static mut MEMORY_MAP: [MemoryRegion; 256] = [MemoryRegion {
 
 /// UEFIエントリーポイント
 #[entry]
-fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
+unsafe fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     if let Err(_) = uefi::helpers::init(&mut system_table) {
         return Status::UNSUPPORTED;
     }
@@ -113,10 +143,14 @@ fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         BOOT_INFO.stride = stride;
         BOOT_INFO.memory_map_addr = MEMORY_MAP.as_ptr() as u64;
         BOOT_INFO.memory_map_len = map_count;
-        BOOT_INFO.memory_map_entry_size = core::mem::size_of::<MemoryRegion>();
+        BOOT_INFO.memory_map_entry_size = size_of::<MemoryRegion>();
     }
 
+    // ここでカーネルアロケータに切り替え
     unsafe {
-        kernel_entry(&*core::ptr::addr_of!(BOOT_INFO));
+        BOOT_INFO.allocator_addr = &ALLOCATOR.use_kernel as *const _ as u64;
+        BOOT_INFO.kernel_heap_addr = &ALLOCATOR.kernel as *const _ as u64;
     }
+
+    kernel_entry(&*&raw const BOOT_INFO);
 }

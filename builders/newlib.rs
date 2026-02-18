@@ -1,0 +1,172 @@
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use num_cpus;
+
+pub fn build_newlib(src_dir: &Path) {
+    let target = env::var("TARGET").expect("TARGET not set");
+    let profile = env::var("PROFILE").expect("PROFILE not set");
+
+    let target_dir = PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or("target".to_string()));
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    // Resolve absolute target dir
+    let abs_target_dir = if target_dir.is_absolute() {
+        target_dir
+    } else {
+        manifest_dir.join(target_dir)
+    };
+
+    let build_base_dir = abs_target_dir
+        .join(&target)
+        .join(&profile);
+
+    let install_dir = build_base_dir.join("newlib_install");
+    let build_dir = build_base_dir.join("newlib_build");
+
+    // Check if libc.a exists in the install location
+    if install_dir.join("x86_64-elf/lib/libc.a").exists() {
+        println!("newlib already built, skipping");
+        return;
+    }
+
+    if !build_dir.exists() {
+        fs::create_dir_all(&build_dir).expect("Failed to create newlib build dir");
+    }
+
+    // Configure (if Makefile doesn't exist)
+    if !build_dir.join("Makefile").exists() {
+        println!("Configuring newlib...");
+
+        let configure_script = src_dir.join("configure");
+        if !configure_script.exists() {
+            panic!("configure script not found at {}", configure_script.display());
+        }
+
+        let abs_configure = configure_script.canonicalize().unwrap();
+
+        let status = Command::new(abs_configure)
+            .current_dir(&build_dir)
+            .arg(format!("--target={}", "x86_64-elf"))
+            .arg(format!("--prefix={}", install_dir.display()))
+            .arg("--disable-multilib")
+            .status()
+            .expect("Failed to execute newlib configure");
+
+        if !status.success() {
+            let _ = fs::remove_dir_all(&build_dir);
+            panic!("Newlib configure failed. Build directory cleaned up.");
+        }
+    }
+
+    let cpu_cores = num_cpus::get();
+    let make_j = format!("-j{}", cpu_cores);
+
+    println!("Building newlib...");
+
+    let status = Command::new("make")
+        .current_dir(&build_dir)
+        .arg(make_j)
+        .status()
+        .expect("Failed to execute newlib make");
+
+    if !status.success() {
+        let _ = fs::remove_dir_all(&build_dir);
+        panic!("Newlib make failed. Build directory cleaned up. Please try again.");
+    }
+
+    println!("Installing newlib...");
+
+    let status = Command::new("make")
+        .current_dir(&build_dir)
+        .arg("install")
+        .status()
+        .expect("Failed to execute newlib make install");
+
+    if !status.success() {
+        let _ = fs::remove_dir_all(&build_dir);
+        panic!("Newlib make install failed. Build directory cleaned up.");
+    }
+}
+
+pub fn build_user_libs(user_dir: &Path, libc_dir: &Path) {
+    println!("Building user libs...");
+
+    if !libc_dir.exists() {
+        fs::create_dir_all(libc_dir).expect("Failed to create libc dir");
+    }
+
+    let crt_src = user_dir.join("crt.rs");
+    let crt_obj = libc_dir.join("crt0.o");
+
+    let status = Command::new("rustc")
+        .args(&["--emit", "obj"])
+        .args(&["--crate-type", "lib"])
+        .args(&["--edition", "2021"])
+        .args(&["--target", "x86_64-unknown-none"])
+        .args(&["-o", crt_obj.to_str().unwrap()])
+        .arg(&crt_src)
+        .status()
+        .expect("Failed to build crt0.o");
+
+    if !status.success() {
+        panic!("Failed to build crt0.o");
+    }
+
+    // 2. libuserglue.a のビルド
+    let lib_src = user_dir.join("lib.rs");
+    let glue_lib = libc_dir.join("libuserglue.a");
+
+    let status = Command::new("rustc")
+        .args(&["--crate-type", "staticlib"])
+        .args(&["--edition", "2021"])
+        .args(&["--target", "x86_64-unknown-none"])
+        .args(&["-C", "panic=abort"])
+        .args(&["-o", glue_lib.to_str().unwrap()])
+        .arg(&lib_src)
+        .status()
+        .expect("Failed to build libuserglue.a");
+
+    if !status.success() {
+        panic!("Failed to build libuserglue.a");
+    }
+
+    // 3. libc.a にマージ
+    let merge_dir = libc_dir.join("merge_tmp");
+    if merge_dir.exists() {
+        fs::remove_dir_all(&merge_dir).unwrap();
+    }
+    fs::create_dir(&merge_dir).unwrap();
+
+    let libc_a = libc_dir.join("libc.a");
+    let libglue_a = glue_lib;
+
+    let status = Command::new("ar")
+        .current_dir(&merge_dir)
+        .arg("x")
+        .arg(&libc_a)
+        .status()
+        .expect("Failed to extract libc.a");
+    if !status.success() { panic!("ar x libc.a failed"); }
+
+    let status = Command::new("ar")
+        .current_dir(&merge_dir)
+        .arg("x")
+        .arg(&libglue_a)
+        .status()
+        .expect("Failed to extract libuserglue.a");
+    if !status.success() { panic!("ar x libuserglue.a failed"); }
+
+    let status = Command::new("sh")
+        .current_dir(&merge_dir)
+        .arg("-c")
+        .arg(format!("ar rcs {} *.o", libc_a.to_str().unwrap()))
+        .status()
+        .expect("Failed to repack libc.a");
+
+    if !status.success() { panic!("ar rcs libc.a failed"); }
+
+    fs::remove_dir_all(&merge_dir).unwrap();
+    println!("Successfully merged user glue into libc.a");
+}

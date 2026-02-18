@@ -233,6 +233,49 @@ pub fn terminate_thread(id: ThreadId) {
     remove_thread(id);
 }
 
+/// 現在のタスクを終了させる（exitシステムコール用）
+///
+/// 現在のスレッドをTerminated状態にして削除し、次のスレッドにスケジューリング
+pub fn exit_current_task(exit_code: u64) -> ! {
+    if let Some(current_id) = current_thread_id() {
+        crate::debug!("Exiting thread {:?} with code {}", current_id, exit_code);
+
+        with_thread_mut(current_id, |thread| {
+            thread.set_state(ThreadState::Terminated);
+        });
+
+        // 現在のスレッドをクリア（先にクリアしないとschedule()が正しく動作しない）
+        set_current_thread(None);
+
+        // 次のスレッドにスケジューリング（戻ってこない）
+        if let Some(next_id) = schedule() {
+            set_current_thread(Some(next_id));
+
+            crate::debug!("Switching from exited thread to {:?}", next_id);
+
+            // スレッドをキューから削除（コンテキストスイッチ前に削除）
+            remove_thread(current_id);
+
+            // コンテキストスイッチを実行（終了したスレッドのコンテキストは保存しない）
+            // old_context_ptr = None を渡すことで、現在のコンテキストを保存せずに次のスレッドにジャンプ
+            unsafe {
+                switch_to_thread(None, next_id);
+            }
+
+            unreachable!("switch_to_thread should never return");
+        }
+        
+        // スレッドをキューから削除
+        remove_thread(current_id);
+    }
+
+    // スレッドがない場合は永久にhaltして待機
+    crate::sprintln!("No more user threads. Halting system.");
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
 /// スケジューリングしてコンテキストスイッチを実行
 ///
 /// タイマー割り込みハンドラから呼び出される
@@ -304,4 +347,11 @@ pub fn start_scheduling() -> ! {
     } else {
         panic!("No threads to schedule!");
     }
+}
+
+/// プロセス終了用のエイリアス（ページフォルトハンドラなどから呼び出される）
+///
+/// 現在のプロセス/スレッドを終了させる
+pub fn exit_current_process(exit_code: i32) -> ! {
+    exit_current_task(exit_code as u64)
 }

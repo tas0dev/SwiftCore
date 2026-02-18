@@ -2,7 +2,10 @@
 //!
 //! 4KBページ単位で物理メモリを管理
 
-use crate::{MemoryRegion, MemoryType, error::{KernelError, MemoryError, Result}};
+use crate::{
+    result::{Kernel, Memory, Result},
+    MemoryRegion, MemoryType,
+};
 use spin::Mutex;
 use x86_64::{
     structures::paging::{FrameAllocator, PhysFrame, Size4KiB},
@@ -60,10 +63,37 @@ impl BitmapFrameAllocator {
 }
 
 unsafe impl FrameAllocator<Size4KiB> for BitmapFrameAllocator {
+    /// フレームを割り当て
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        let frame = self.usable_frames_iter().nth(self.next_frame);
-        self.next_frame += 1;
-        frame
+        let mut f = self.next_frame as u64;
+        let max_frame = self
+            .memory_map
+            .iter()
+            .map(|r| (r.start + r.len) / 4096)
+            .max()
+            .unwrap_or(0);
+
+        while f <= max_frame {
+            let phys_addr = f * 4096;
+            let mut usable = false;
+
+            for r in self.memory_map.iter() {
+                if r.region_type != MemoryType::Usable {
+                    continue;
+                }
+                if phys_addr >= r.start && phys_addr < r.start + r.len {
+                    usable = true;
+                    break;
+                }
+            }
+
+            if usable {
+                self.next_frame = (f + 1) as usize;
+                return Some(PhysFrame::containing_address(PhysAddr::new(phys_addr)));
+            }
+            f += 1;
+        }
+        None
     }
 }
 
@@ -79,7 +109,7 @@ pub fn allocate_frame() -> Result<PhysFrame> {
         .lock()
         .as_mut()
         .and_then(|a| a.allocate_frame())
-        .ok_or(KernelError::Memory(MemoryError::OutOfMemory))
+        .ok_or(Kernel::Memory(Memory::OutOfMemory))
 }
 
 /// 使用可能なメモリ情報を取得

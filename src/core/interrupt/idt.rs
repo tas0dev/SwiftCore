@@ -61,9 +61,12 @@ pub fn init() {
         }
 
         // システムコール割り込み (0x80)
-        idt[0x80]
-            .set_handler_fn(syscall::syscall_interrupt_handler)
-            .set_privilege_level(PrivilegeLevel::Ring3);
+        // naked functionなので、手動で設定
+        unsafe {
+            let handler_addr = syscall::syscall_interrupt_handler as *const () as u64;
+            idt[0x80].set_handler_addr(x86_64::VirtAddr::new(handler_addr))
+                .set_privilege_level(PrivilegeLevel::Ring3);
+        }
 
         // 48-255番も念のため設定（未使用の割り込みベクタ）
         for i in 48..=255 {
@@ -127,9 +130,19 @@ extern "x86-interrupt" fn bound_range_exceeded_handler(stack_frame: InterruptSta
 }
 
 extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFrame) {
-    error!("EXCEPTION: INVALID OPCODE");
+    // ユーザーモードかチェック（code_segmentのRPLビットを確認）
+    let is_user_mode = stack_frame.code_segment.rpl() == x86_64::PrivilegeLevel::Ring3;
+    
+    error!("EXCEPTION: INVALID OPCODE ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     debug!("{:#?}", stack_frame);
-    halt_cpu();
+    
+    if is_user_mode {
+        error!("Terminating faulting user process");
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn device_not_available_handler(stack_frame: InterruptStackFrame) {
@@ -169,20 +182,55 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
-    error!("EXCEPTION: STACK SEGMENT FAULT");
+    let is_user_mode = stack_frame.code_segment.rpl() == x86_64::PrivilegeLevel::Ring3;
+    
+    error!("EXCEPTION: STACK SEGMENT FAULT ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     error!("Error code: {:#x}", error_code);
     debug!("{:#?}", stack_frame);
-    halt_cpu();
+    
+    if is_user_mode {
+        error!("Terminating faulting user process");
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn general_protection_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
-    error!("EXCEPTION: GENERAL PROTECTION FAULT");
+    let is_user_mode = stack_frame.code_segment.rpl() == x86_64::PrivilegeLevel::Ring3;
+    
+    error!("EXCEPTION: GENERAL PROTECTION FAULT ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     error!("Error code: {:#x}", error_code);
-    error!("{:#?}", stack_frame);
-    halt_cpu();
+
+    // エラーコードの詳細を解析
+    let external = (error_code & 0x1) != 0;
+    let table = (error_code >> 1) & 0x3;
+    let index = (error_code >> 3) & 0x1FFF;
+
+    error!("  External: {}, Table: {} ({}), Index: {}",
+           external,
+           table,
+           match table {
+               0 => "GDT",
+               1 => "IDT",
+               2 | 3 => "LDT",
+               _ => "Unknown",
+           },
+           index);
+
+    debug!("{:#?}", stack_frame);
+    
+    if is_user_mode {
+        error!("Terminating faulting user process");
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn page_fault_handler(
@@ -190,11 +238,41 @@ extern "x86-interrupt" fn page_fault_handler(
     error_code: x86_64::structures::idt::PageFaultErrorCode,
 ) {
     use x86_64::registers::control::Cr2;
-    error!("EXCEPTION: PAGE FAULT");
-    error!("Accessed address: {:?}", Cr2::read());
+    use x86_64::VirtAddr;
+
+    let faulting_addr = Cr2::read().unwrap_or(VirtAddr::new(0));
+    let is_user_mode = error_code.contains(x86_64::structures::idt::PageFaultErrorCode::USER_MODE);
+
+    error!("EXCEPTION: PAGE FAULT ({})",
+           if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
+    error!("Accessed address: {:#x}", faulting_addr.as_u64());
     error!("Error code: {:?}", error_code);
-    debug!("{:#?}", stack_frame);
-    halt_cpu();
+    error!("  Present: {}, Write: {}, User: {}, Reserved: {}, Instruction: {}",
+           error_code.contains(x86_64::structures::idt::PageFaultErrorCode::PROTECTION_VIOLATION),
+           error_code.contains(x86_64::structures::idt::PageFaultErrorCode::CAUSED_BY_WRITE),
+           is_user_mode,
+           error_code.contains(x86_64::structures::idt::PageFaultErrorCode::MALFORMED_TABLE),
+           error_code.contains(x86_64::structures::idt::PageFaultErrorCode::INSTRUCTION_FETCH));
+
+    if let Some(phys) = crate::mem::paging::translate_addr(faulting_addr) {
+        error!("  Virtual {:#x} is mapped to physical {:#x}", faulting_addr.as_u64(), phys.as_u64());
+    } else {
+        error!("  Virtual {:#x} is NOT mapped", faulting_addr.as_u64());
+    }
+
+    if is_user_mode {
+        // ユーザーモードでのページフォルト: プロセスを終了
+        error!("Terminating faulting user process");
+        debug!("{:#?}", stack_frame);
+        
+        // 現在のプロセスを終了させる
+        crate::task::scheduler::exit_current_process(-1);
+    } else {
+        // カーネルモードでのページフォルト: システム全体を停止
+        error!("FATAL: Page fault in kernel mode!");
+        debug!("{:#?}", stack_frame);
+        halt_cpu();
+    }
 }
 
 extern "x86-interrupt" fn x87_floating_point_handler(stack_frame: InterruptStackFrame) {
