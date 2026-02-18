@@ -3,7 +3,7 @@
 //! Global Descriptor Tableを管理
 
 use crate::mem::tss;
-use crate::sprintln;
+use crate::info;
 use core::arch::asm;
 use spin::Once;
 use x86_64::instructions::tables::load_tss;
@@ -19,14 +19,36 @@ static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
 struct Selectors {
     code_selector: SegmentSelector,
     data_selector: SegmentSelector,
+    user_code_selector: SegmentSelector,
+    user_data_selector: SegmentSelector,
     tss_selector: SegmentSelector,
     user_code_selector: SegmentSelector,
     user_data_selector: SegmentSelector,
 }
 
+/// ユーザーモードのコードセグメントセレクタを取得
+pub fn user_code_selector() -> SegmentSelector {
+    GDT.get().expect("GDT not initialized").1.user_code_selector
+}
+
+/// ユーザーモードのデータセグメントセレクタを取得
+pub fn user_data_selector() -> SegmentSelector {
+    GDT.get().expect("GDT not initialized").1.user_data_selector
+}
+
+/// カーネルのコードセグメントセレクタを取得
+pub fn code_selector() -> SegmentSelector {
+    GDT.get().expect("GDT not initialized").1.code_selector
+}
+
+/// カーネルのデータセグメントセレクタを取得
+pub fn data_selector() -> SegmentSelector {
+    GDT.get().expect("GDT not initialized").1.data_selector
+}
+
 /// GDTを初期化
 pub fn init() {
-    sprintln!("Initializing GDT...");
+    info!("Initializing GDT...");
 
     // TSSを初期化
     let tss = tss::init();
@@ -36,21 +58,27 @@ pub fn init() {
         let mut gdt = GlobalDescriptorTable::new();
         let code_selector = gdt.append(Descriptor::kernel_code_segment());
         let data_selector = gdt.append(Descriptor::kernel_data_segment());
+        let user_data_selector = gdt.append(Descriptor::user_data_segment());
+        let user_code_selector = gdt.append(Descriptor::user_code_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(tss));
         // user segments (RPL=3)
         let user_code_selector = gdt.append(Descriptor::user_code_segment());
         let user_data_selector = gdt.append(Descriptor::user_data_segment());
 
-        sprintln!("GDT entries created:");
-        sprintln!("  Code selector: {:?}", code_selector);
-        sprintln!("  Data selector: {:?}", data_selector);
-        sprintln!("  TSS selector: {:?}", tss_selector);
+        info!("GDT entries created:");
+        info!("  Code selector: {:?}", code_selector);
+        info!("  Data selector: {:?}", data_selector);
+        info!("  User data selector: {:?}", user_data_selector);
+        info!("  User code selector: {:?}", user_code_selector);
+        info!("  TSS selector: {:?}", tss_selector);
 
         (
             gdt,
             Selectors {
                 code_selector,
                 data_selector,
+                user_code_selector,
+                user_data_selector,
                 tss_selector,
                 user_code_selector,
                 user_data_selector,
@@ -85,7 +113,7 @@ pub fn init() {
         }
     }
 
-    sprintln!("GDT loaded with TSS");
+    info!("GDT loaded with TSS");
 }
 
 /// ユーザーモード用コードセレクタ（RPL=3）を返す

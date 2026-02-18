@@ -1,4 +1,20 @@
-/target
+# Binaries
+target/
+*.bin
+*.elf
+*.service
+*.o
+*.a
+
+# editor config files
+.idea/
+.vscode/
+.zed/
+
+# fossil version control
 *.fossil
 *.fslckout
+
+# others
 *.log
+*.lock

@@ -14,16 +14,16 @@
 graph TB
     subgraph UserSpace["ユーザー空間 (Ring 3)"]
         App["アプリケーション"]
-        UserDriver["ユーザーランドドライバ"]
-    end
-
-    subgraph KernelSpace["カーネル空間 (Ring 0)"]
         subgraph ServiceLayer["サービス層"]
             DeviceDriver["デバイスドライバ"]
             FileSystem["ファイルシステム"]
             Network["ネットワークスタック"]
             IntHandler["割込みハンドラ（実処理）"]
         end
+    end
+
+    subgraph KernelSpace["カーネル空間 (Ring 0)"]
+
 
         subgraph KernelCore["カーネルコア"]
             Memory["メモリ管理<br/>(VMM/PMM)"]

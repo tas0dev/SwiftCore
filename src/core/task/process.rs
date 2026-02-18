@@ -9,8 +9,10 @@ use super::ids::{PrivilegeLevel, ProcessId, ProcessState};
 pub struct Process {
     /// プロセスID
     id: ProcessId,
-    /// プロセス名
-    name: &'static str,
+    /// プロセス名 (固定長バッファ)
+    name: [u8; 32],
+    /// 有効な名前の長さ
+    name_len: usize,
     /// プロセスの状態
     state: ProcessState,
     /// 権限レベル
@@ -19,6 +21,10 @@ pub struct Process {
     parent_id: Option<ProcessId>,
     /// ページテーブルのアドレス（メモリ空間）。Noneの場合はカーネル空間を共有。
     page_table: Option<u64>,
+    /// ヒープ開始アドレス
+    heap_start: u64,
+    /// 現在のヒープ終了アドレス (program break)
+    heap_end: u64,
     /// 優先度（0が最高、値が大きいほど低い）
     priority: u8,
 }
@@ -32,18 +38,30 @@ impl Process {
     /// * `parent_id` - 親プロセスID
     /// * `priority` - プロセスの優先度
     pub fn new(
-        name: &'static str,
+        name: &str,
         privilege: PrivilegeLevel,
         parent_id: Option<ProcessId>,
         priority: u8,
     ) -> Self {
+        let mut name_buf = [0u8; 32];
+        let bytes = name.as_bytes();
+        let len = core::cmp::min(bytes.len(), 32);
+        name_buf[..len].copy_from_slice(&bytes[..len]);
+
+        // デフォルトのヒープ領域（仮）。exec時に再設定されるべき。
+        // 0x40000000番地あたりを開始にする例が多いが、ここでは0にしておく。
+        let heap_start = 0;
+
         Self {
             id: ProcessId::new(),
-            name,
+            name: name_buf,
+            name_len: len,
             state: ProcessState::Running,
             privilege,
             parent_id,
             page_table: None, // TODO: ページテーブル実装後に設定
+            heap_start,
+            heap_end: heap_start,
             priority,
         }
     }
@@ -54,8 +72,8 @@ impl Process {
     }
 
     /// プロセス名を取得
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        core::str::from_utf8(&self.name[..self.name_len]).unwrap_or("???")
     }
 
     /// プロセスの状態を取得
@@ -92,6 +110,26 @@ impl Process {
     pub fn set_page_table(&mut self, page_table: u64) {
         self.page_table = Some(page_table);
     }
+
+    /// ヒープ終了アドレスを取得
+    pub fn heap_end(&self) -> u64 {
+        self.heap_end
+    }
+
+    /// ヒープ終了アドレスを設定
+    pub fn set_heap_end(&mut self, addr: u64) {
+        self.heap_end = addr;
+    }
+
+    /// ヒープ開始アドレスを取得
+    pub fn heap_start(&self) -> u64 {
+        self.heap_start
+    }
+
+    /// ヒープ開始アドレスを設定
+    pub fn set_heap_start(&mut self, addr: u64) {
+        self.heap_start = addr;
+    }
 }
 
 impl core::fmt::Debug for Process {
@@ -99,7 +137,7 @@ impl core::fmt::Debug for Process {
         let mut debug_struct = f.debug_struct("Process");
         debug_struct
             .field("id", &self.id)
-            .field("name", &self.name)
+            .field("name", &self.name())
             .field("state", &self.state)
             .field("privilege", &self.privilege)
             .field("parent_id", &self.parent_id)
@@ -127,7 +165,7 @@ pub struct ProcessTable {
 
 impl ProcessTable {
     /// プロセステーブルの最大容量
-    pub const MAX_PROCESSES: usize = 256;
+    pub const MAX_PROCESSES: usize = 64;
 
     /// 新しいプロセステーブルを作成
     pub const fn new() -> Self {
@@ -201,19 +239,19 @@ impl ProcessTable {
         self.processes.iter_mut().filter_map(|slot| slot.as_mut())
     }
 
+    /// 名前でプロセスを検索
+    pub fn find_by_name(&self, name: &str) -> Option<&Process> {
+        // 名前比較（簡易実装: 完全一致のみ考慮）
+        // 注: Processの名前に .service などの拡張子を含む場合があるため
+        // ここでは前方一致などで緩和するのも手だが、厳密には完全一致で。
+        self.processes.iter()
+            .filter_map(|slot| slot.as_ref())
+            .find(|p| p.name() == name || (p.name().len() > 0 && p.name() == name))
+    }
+
     /// 現在のプロセス数を取得
     pub fn count(&self) -> usize {
         self.count
-    }
-
-    /// プロセステーブルが満杯かどうか
-    pub fn is_full(&self) -> bool {
-        self.count >= Self::MAX_PROCESSES
-    }
-
-    /// プロセステーブルが空かどうか
-    pub fn is_empty(&self) -> bool {
-        self.count == 0
     }
 }
 
@@ -243,12 +281,13 @@ where
     table.get_mut(id).map(f)
 }
 
-/// プロセスを削除
-pub fn remove_process(id: ProcessId) -> Option<Process> {
-    PROCESS_TABLE.lock().remove(id)
+/// 名前からプロセスIDを検索
+pub fn find_process_id_by_name(name: &str) -> Option<ProcessId> {
+    let table = PROCESS_TABLE.lock();
+    table.find_by_name(name).map(|p| p.id())
 }
 
-/// すべてのプロセスに対して操作を実行
+/// すべてのプロセスに対して処理を実行
 pub fn for_each_process<F>(mut f: F)
 where
     F: FnMut(&Process),
