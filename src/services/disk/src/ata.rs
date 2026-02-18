@@ -6,31 +6,35 @@
 use core::fmt;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use core::arch::asm;
+// syscall経由でポートI/Oを行う
+extern "C" {
+    fn syscall(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64;
+}
 
-/// ポートI/Oヘルパー
+const SYSCALL_PORT_IN: u64 = 21;
+const SYSCALL_PORT_OUT: u64 = 22;
+
+/// ポートI/Oヘルパー (syscall経由)
 #[inline]
 unsafe fn inb(port: u16) -> u8 {
-    let value: u8;
-    asm!("in al, dx", out("al") value, in("dx") port, options(nomem, nostack));
-    value
+    let value = syscall(SYSCALL_PORT_IN, port as u64, 1, 0, 0, 0);
+    value as u8
 }
 
 #[inline]
 unsafe fn outb(port: u16, value: u8) {
-    asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack));
+    syscall(SYSCALL_PORT_OUT, port as u64, value as u64, 1, 0, 0);
 }
 
 #[inline]
 unsafe fn inw(port: u16) -> u16 {
-    let value: u16;
-    asm!("in ax, dx", out("ax") value, in("dx") port, options(nomem, nostack));
-    value
+    let value = syscall(SYSCALL_PORT_IN, port as u64, 2, 0, 0, 0);
+    value as u16
 }
 
 #[inline]
 unsafe fn outw(port: u16, value: u16) {
-    asm!("out dx, ax", in("dx") port, in("ax") value, options(nomem, nostack));
+    syscall(SYSCALL_PORT_OUT, port as u64, value as u64, 2, 0, 0);
 }
 
 /// ATAポート
