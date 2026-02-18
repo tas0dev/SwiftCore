@@ -41,6 +41,11 @@ struct TestApp {
 /// 現在は静的に定義
 const SERVICES: &[ServiceDef] = &[
     ServiceDef {
+        name: "disk.service",
+        path: "disk.service",
+        order: 5,
+    },
+    ServiceDef {
         name: "fs.service",
         path: "fs.service",
         order: 10,
