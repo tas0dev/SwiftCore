@@ -55,20 +55,16 @@ const SERVICES: &[ServiceDef] = &[
 ];
 
 /// テストアプリケーションのリスト
-/// START_TEST_APP環境変数がtrueの場合のみビルドに含まれる
 #[cfg(feature = "run_tests")]
 const TEST_APPS: &[TestApp] = &[
     TestApp {
         name: "tests",
-        path: "tests.elf",
+        path: "/tests.elf",
     },
 ];
 
 #[cfg(not(feature = "run_tests"))]
 const TEST_APPS: &[TestApp] = &[];
-
-/// テストアプリを起動するかどうかのフラグ
-const START_TEST_APP: bool = true;
 
 /// サービスを起動する
 fn start_service(service: &ServiceDef) -> Result<u64, &'static str> {

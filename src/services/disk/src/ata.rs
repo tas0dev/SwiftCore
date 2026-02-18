@@ -5,37 +5,7 @@
 
 use core::fmt;
 use core::sync::atomic::{AtomicBool, Ordering};
-
-// syscall経由でポートI/Oを行う
-extern "C" {
-    fn syscall(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64;
-}
-
-const SYSCALL_PORT_IN: u64 = 21;
-const SYSCALL_PORT_OUT: u64 = 22;
-
-/// ポートI/Oヘルパー (syscall経由)
-#[inline]
-unsafe fn inb(port: u16) -> u8 {
-    let value = syscall(SYSCALL_PORT_IN, port as u64, 1, 0, 0, 0);
-    value as u8
-}
-
-#[inline]
-unsafe fn outb(port: u16, value: u8) {
-    syscall(SYSCALL_PORT_OUT, port as u64, value as u64, 1, 0, 0);
-}
-
-#[inline]
-unsafe fn inw(port: u16) -> u16 {
-    let value = syscall(SYSCALL_PORT_IN, port as u64, 2, 0, 0, 0);
-    value as u16
-}
-
-#[inline]
-unsafe fn outw(port: u16, value: u16) {
-    syscall(SYSCALL_PORT_OUT, port as u64, value as u64, 2, 0, 0);
-}
+use swiftlib::cfunc::{inb, outb, inw, outw};
 
 /// ATAポート
 #[derive(Debug, Clone, Copy)]
@@ -104,16 +74,22 @@ mod status {
 /// ATAコマンド
 #[allow(dead_code)]
 mod command {
+    /// 読み取りセクタ
     pub const READ_SECTORS: u8 = 0x20;
+    /// 書き込みセクタ
     pub const WRITE_SECTORS: u8 = 0x30;
+    /// IDENTIFYドライブ情報
     pub const IDENTIFY: u8 = 0xEC;
+    /// キャッシュフラッシュ
     pub const FLUSH_CACHE: u8 = 0xE7;
 }
 
 /// ATAドライブタイプ
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DriveType {
+    /// マスター
     Master,
+    /// スレーブ
     Slave,
 }
 
@@ -136,9 +112,13 @@ pub type AtaResult<T> = Result<T, AtaError>;
 
 /// ATAドライブ
 pub struct AtaDrive {
+    /// ドライブに対応するI/Oポート
     ports: AtaPorts,
+    /// ドライブの種類（マスター/スレーブ）
     drive_type: DriveType,
+    /// ドライブのセクタ数
     sectors: u64,
+    /// ドライブが初期化されているか
     initialized: AtomicBool,
 }
 

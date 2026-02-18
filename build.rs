@@ -79,9 +79,10 @@ fn main() {
         }
     }
 
-    // アプリケーションをビルド（全てfsへ）
+    // アプリケーションをビルド
     let apps_dir = manifest_dir.join("src/apps");
     if apps_dir.is_dir() {
+        println!("Building test applications");
         build_apps(&apps_dir, &fs_dir, "elf");
     }
 
