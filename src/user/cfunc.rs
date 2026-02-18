@@ -1,45 +1,41 @@
 use core::ffi::c_char;
+use crate::port as rust_port;
 
 #[allow(dead_code)]
 extern "C" {
-    /// 標準出力にフォーマットされた文字列を出力する
-    ///
-    /// ## 引数
-    /// - `format`: フォーマット文字列(Cスタイル)
-    /// - `...`: 可変引数 (フォーマットに対応する値)
-    ///
-    /// ## 戻り値
-    /// 出力した文字数、またはエラーコード
-    pub fn printf(format: *const c_char, ...) -> i32;
-    /// メモリを確保する
-    ///
-    /// ## 引数
-    /// - `size`: 確保するバイト数
-    ///
-    /// ## 戻り値
-    /// 確保されたメモリのポインタ、またはNULL
+    pub fn printf(format: *const c_char, _: ...) -> i32;
     pub fn malloc(size: usize) -> *mut u8;
-    /// メモリを開放する
-    ///
-    /// ## 引数
-    /// - `ptr`: 開放するメモリのポインタ
     pub fn free(ptr: *mut u8);
-    /// メモリを再確保する
-    ///
-    /// ## 引数
-    /// - `ptr`: 再確保する元のメモリのポインタ
-    /// - `size`: 新しいサイズ
-    ///
-    /// ## 戻り値
-    /// 再確保されたメモリのポインタ、またはNULL
     pub fn realloc(ptr: *mut u8, size: usize) -> *mut u8;
-    /// アライメントされたメモリを確保する
-    ///
-    /// ## 引数
-    /// - `alignment`: アライメントのバイト数（2のべき乗でなければならない）
-    /// - `size`: 確保するバイト数
-    ///
-    /// ## 戻り値
-    /// 確保されたメモリのポインタ、またはNULL
     pub fn memalign(alignment: usize, size: usize) -> *mut u8;
+}
+
+#[no_mangle]
+pub extern "C" fn inb(port: u16) -> u8 {
+    rust_port::inb(port)
+}
+
+#[no_mangle]
+pub extern "C" fn outb(port: u16, value: u8) {
+    rust_port::outb(port, value)
+}
+
+#[no_mangle]
+pub extern "C" fn inw(port: u16) -> u16 {
+    rust_port::inw(port)
+}
+
+#[no_mangle]
+pub extern "C" fn outw(port: u16, value: u16) {
+    rust_port::outw(port, value)
+}
+
+#[no_mangle]
+pub extern "C" fn inl(port: u16) -> u32 {
+    rust_port::inl(port)
+}
+
+#[no_mangle]
+pub extern "C" fn outl(port: u16, value: u32) {
+    rust_port::outl(port, value)
 }
