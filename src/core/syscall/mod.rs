@@ -13,6 +13,7 @@ mod types;
 pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS, EBADF, EFAULT, ENOENT, EPERM, SUCCESS};
 
 use core::arch::asm;
+use linux as linux_sys;
 use x86_64::structures::idt::InterruptStackFrame;
 
 /// システムコールのディスパッチ
