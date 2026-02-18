@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
+#![feature(alloc_error_handler)]
 #![allow(unused)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
@@ -7,7 +8,7 @@
 extern crate alloc;
 
 /// エラー型定義
-pub mod error;
+pub mod result;
 
 /// 割込み管理
 pub mod interrupt;
@@ -17,6 +18,9 @@ pub mod kernel;
 
 /// メモリ管理、GDT、TSSを含む
 pub mod mem;
+
+/// ELF周り
+pub mod elf;
 
 /// パニックハンドラ
 pub mod panic;
@@ -36,9 +40,13 @@ pub mod init;
 /// ユーティリティモジュール
 pub mod util;
 
-pub use error::{KernelError, Result};
+/// CPU機能の初期化
+pub mod cpu;
+
+pub use result::{Kernel, Result};
 pub use kernel::kernel_entry;
 
+/// デバイス情報
 #[repr(C)]
 pub struct BootInfo {
     /// 物理メモリオフセット
@@ -59,6 +67,10 @@ pub struct BootInfo {
     pub memory_map_len: usize,
     /// メモリマップの各エントリサイズ
     pub memory_map_entry_size: usize,
+    /// アロケータ切り替え用フラグのアドレス (Virtual Address)
+    pub allocator_addr: u64,
+    /// カーネルアロケータの制御構造体へのアドレス (Virtual Address)
+    pub kernel_heap_addr: u64,
 }
 
 /// メモリ領域の種類

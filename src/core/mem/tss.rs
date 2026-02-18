@@ -2,7 +2,7 @@
 //!
 //! TSSを管理
 
-use crate::sprintln;
+use crate::{info, sprintln};
 use spin::Once;
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
@@ -15,7 +15,7 @@ static TSS: Once<TaskStateSegment> = Once::new();
 /// TSSを初期化して返す
 #[allow(unused_unsafe)]
 pub fn init() -> &'static TaskStateSegment {
-    sprintln!("Initializing TSS...");
+    info!("Initializing TSS...");
 
     TSS.call_once(|| {
         let mut tss = TaskStateSegment::new();
@@ -27,10 +27,38 @@ pub fn init() -> &'static TaskStateSegment {
 
             let stack_start = VirtAddr::from_ptr(unsafe { &raw const STACK });
             let stack_end = stack_start + STACK_SIZE as u64;
+            info!("  IST[{}] stack: {:#x}", DOUBLE_FAULT_IST_INDEX, stack_end.as_u64());
             stack_end
         };
 
-        sprintln!("TSS configured with IST[{}] stack", DOUBLE_FAULT_IST_INDEX);
+        // ユーザーモードからカーネルモードへの遷移用のRing0スタックを設定
+        tss.privilege_stack_table[0] = {
+            const RING0_STACK_SIZE: usize = 4096 * 4;
+            static mut RING0_STACK: [u8; RING0_STACK_SIZE] = [0; RING0_STACK_SIZE];
+
+            let stack_start = VirtAddr::from_ptr(unsafe { &raw const RING0_STACK });
+            let stack_end = stack_start + RING0_STACK_SIZE as u64;
+            info!("  Ring0 stack (RSP0): {:#x}", stack_end.as_u64());
+            stack_end
+        };
+
+        info!("TSS configured:");
+        info!("  IST[0] stack: {:#x}", tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize].as_u64());
+        info!("  Ring0 stack (RSP0): {:#x}", tss.privilege_stack_table[0].as_u64());
         tss
     })
+}
+
+/// Ring 0スタック (RSP0) を更新
+///
+/// コンテキストスイッチ時に呼び出し、次のスレッドのカーネルスタックを設定する
+pub fn set_rsp0(rsp: u64) {
+    if let Some(tss) = TSS.get() {
+        // TSSは参照として取得されるが、RSP0は実行時に変更する必要があるため、
+        // 内部可変性を持つか、ポインタ経由で変更する
+        let ptr = tss as *const TaskStateSegment as *mut TaskStateSegment;
+        unsafe {
+            (*ptr).privilege_stack_table[0] = VirtAddr::new(rsp);
+        }
+    }
 }

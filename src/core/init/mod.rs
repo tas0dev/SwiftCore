@@ -1,8 +1,6 @@
 //! 起動時に実行する初期化処理をまとめたモジュール
 
-use crate::{
-    debug, driver, interrupt, mem, task, util, BootInfo, MemoryRegion, Result,
-};
+use crate::{debug, interrupt, mem, task, util, BootInfo, MemoryRegion, Result};
 
 pub mod fs;
 
@@ -14,6 +12,9 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
         boot_info.screen_height,
         boot_info.stride,
     );
+
+    // CPU機能の初期化（SSE/FPU有効化）
+    crate::cpu::init();
 
     let memory_map = unsafe {
         core::slice::from_raw_parts(
@@ -34,8 +35,13 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
 
     driver::ps2_keyboard::init();
 
-    mem::init(boot_info.physical_memory_offset);
+    // 先にフレームアロケータを初期化
     mem::init_frame_allocator(memory_map)?;
+
+    // メモリ管理の初期化
+    mem::init(boot_info);
+
+    fs::init();
 
     unsafe {
         x86_64::instructions::interrupts::enable();
