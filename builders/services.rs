@@ -67,8 +67,13 @@ pub fn parse_service_index(index_path: &Path) -> Result<Vec<ServiceEntry>, Strin
                 .trim_matches('"')
                 .trim_matches('\'')
                 .to_string();
-        } else if line.starts_with("fs_type = ") {
-            current_fs = line["fs_type = ".len()..]
+        } else if line.starts_with("fs = ") || line.starts_with("fs_type = ") {
+            let prefix = if line.starts_with("fs = ") {
+                "fs = "
+            } else {
+                "fs_type = "
+            };
+            current_fs = line[prefix.len()..]
                 .trim_matches('"')
                 .trim_matches('\'')
                 .to_string();
