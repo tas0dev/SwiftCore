@@ -25,10 +25,10 @@ if [ -z "$OVMF" ]; then
     exit 1
 fi
 
-EFI_FILE="$1"
+SRC="$1"
 
-if [ ! -f "$EFI_FILE" ]; then
-    echo "Error: EFI file not found: $EFI_FILE"
+if [ -z "$SRC" ]; then
+    echo "Usage: $0 <EFI_FILE|BOOT_DIR>"
     exit 1
 fi
 
@@ -36,9 +36,13 @@ TEMP_DIR=$(mktemp -d)
 # shellcheck disable=SC2064
 trap "rm -rf $TEMP_DIR" EXIT
 
-mkdir -p "$TEMP_DIR/esp/EFI/BOOT"
+    TEMP_DIR=$(mktemp -d)
+    trap "rm -rf $TEMP_DIR" EXIT
 
-cp "$EFI_FILE" "$TEMP_DIR/esp/EFI/BOOT/BOOTX64.EFI"
+    mkdir -p "$TEMP_DIR/esp/EFI/BOOT"
+    cp "$SRC" "$TEMP_DIR/esp/EFI/BOOT/BOOTX64.EFI"
+    DRIVE_ARG="fat:rw:$TEMP_DIR/esp"
+fi
 
 exec qemu-system-x86_64 \
     -bios "$OVMF" \

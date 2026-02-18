@@ -33,7 +33,7 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
         );
     }
 
-    task::init_scheduler();
+    driver::ps2_keyboard::init();
 
     // 先にフレームアロケータを初期化
     mem::init_frame_allocator(memory_map)?;
@@ -47,7 +47,13 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
         x86_64::instructions::interrupts::enable();
     }
 
+    // Initialize syscall MSRs (STAR/LSTAR/FMASK)
+    interrupt::init_syscall();
+
     interrupt::init_pit();
+    // Enable scheduler and timer interrupts for preemptive multitasking during development/testing.
+    // (In production this may be controlled by userland service manager.)
+    crate::task::init_scheduler();
     interrupt::enable_timer_interrupt();
 
     Ok(memory_map)

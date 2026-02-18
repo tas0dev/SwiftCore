@@ -52,6 +52,9 @@ pub enum SyscallNumber {
     PortOut = 22,
 }
 
+/// 入力が空
+pub const ENODATA: u64 = u64::MAX - 4;
+
 #[inline(always)]
 pub(crate) fn syscall0(num: u64) -> u64 {
     let ret: u64;

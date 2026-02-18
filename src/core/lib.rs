@@ -31,6 +31,9 @@ pub mod task;
 /// システムコール
 pub mod syscall;
 
+/// デバイスドライバ
+pub mod driver;
+
 /// 起動時初期化
 pub mod init;
 
