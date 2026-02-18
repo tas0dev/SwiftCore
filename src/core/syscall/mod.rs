@@ -7,6 +7,7 @@ pub mod exec;
 pub mod io;
 pub mod process;
 pub mod fs;
+pub mod io_port;
 
 mod types;
 
@@ -41,6 +42,8 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, _arg3: u64, _arg4: u6
         x if x == SyscallNumber::Rmdir as u64 => fs::rmdir(arg0),
         x if x == SyscallNumber::Readdir as u64 => fs::readdir(arg0, arg1, arg2),
         x if x == SyscallNumber::Chdir as u64 => fs::chdir(arg0),
+        x if x == SyscallNumber::PortIn as u64 => io_port::port_in(arg0, arg1),
+        x if x == SyscallNumber::PortOut as u64 => io_port::port_out(arg0, arg1, arg2),
         _ => ENOSYS,
     }
 }

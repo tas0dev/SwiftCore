@@ -20,6 +20,8 @@ pub mod io;
 pub mod process;
 /// ファイルシステム関連のシステムコール
 pub mod fs;
+/// ポートI/O関連のシステムコール
+pub mod port;
 pub mod cfunc;
 
 use core::panic::PanicInfo;
