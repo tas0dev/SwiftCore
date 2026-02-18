@@ -89,7 +89,6 @@ fn start_service(service: &ServiceDef) -> Result<u64, &'static str> {
 #[no_mangle]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     println!("[CORE] Service Manager Started");
-    println!("[CORE] Version: 0.1.0");
     
     // すべてのサービスをorder順に起動
     for service in SERVICES.iter() {

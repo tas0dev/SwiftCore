@@ -15,6 +15,7 @@ target/
 *.fossil
 *.fslckout
 
-# others
+# caches and logs
+rustc-ice-*.txt
 *.log
 *.lock
