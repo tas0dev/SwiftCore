@@ -22,8 +22,10 @@ pub struct Thread {
     id: ThreadId,
     /// 所属するプロセスID
     process_id: ProcessId,
-    /// スレッド名
-    name: &'static str,
+    /// スレッド名 (固定長バッファ)
+    name: [u8; 32],
+    /// 有効な名前の長さ
+    name_len: usize,
     /// 現在の状態
     state: ThreadState,
     /// CPUコンテキスト
@@ -32,6 +34,30 @@ pub struct Thread {
     kernel_stack: u64,
     /// カーネルスタックのサイズ
     kernel_stack_size: usize,
+    /// ユーザーモードエントリポイント（0の場合はカーネルモードスレッド）
+    user_entry: u64,
+    /// ユーザースタックトップ（0の場合はカーネルモードスレッド）
+    user_stack: u64,
+}
+
+// Simple kernel stack pool for creating kernel stacks for threads
+const KSTACK_POOL_SIZE: usize = 4096 * 64; // 256 KiB
+static mut KSTACK_POOL: [u8; KSTACK_POOL_SIZE] = [0; KSTACK_POOL_SIZE];
+static NEXT_KSTACK_OFFSET: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Allocate a kernel stack from the internal pool. Returns base address (bottom) of stack.
+pub fn allocate_kernel_stack(size: usize) -> Option<u64> {
+    if size == 0 || size > KSTACK_POOL_SIZE {
+        return None;
+    }
+    // align size to 16
+    let size = (size + 0xF) & !0xF;
+    let off = NEXT_KSTACK_OFFSET.fetch_add(size, core::sync::atomic::Ordering::SeqCst);
+    if off + size > KSTACK_POOL_SIZE {
+        return None;
+    }
+    let ptr = unsafe { &raw const KSTACK_POOL as *const _ as usize + off } as u64;
+    Some(ptr)
 }
 
 impl Thread {
@@ -45,11 +71,16 @@ impl Thread {
     /// * `kernel_stack_size` - カーネルスタックのサイズ
     pub fn new(
         process_id: ProcessId,
-        name: &'static str,
+        name: &str,
         entry_point: fn() -> !,
         kernel_stack: u64,
         kernel_stack_size: usize,
     ) -> Self {
+        let mut name_buf = [0u8; 32];
+        let bytes = name.as_bytes();
+        let len = core::cmp::min(bytes.len(), 32);
+        name_buf[..len].copy_from_slice(&bytes[..len]);
+
         let mut context = Context::new();
 
         // スタックポインタをスタックの最後に設定（スタックは下に伸びる）
@@ -87,12 +118,98 @@ impl Thread {
         Self {
             id: ThreadId::new(),
             process_id,
-            name,
+            name: name_buf,
+            name_len: len,
             state: ThreadState::Ready,
             context,
             kernel_stack,
             kernel_stack_size,
+            user_entry: 0,
+            user_stack: 0,
         }
+    }
+
+    /// 新しいユーザーモードスレッドを作成
+    ///
+    /// # Arguments
+    /// * `process_id` - 所属するプロセスID
+    /// * `name` - スレッド名
+    /// * `user_entry` - ユーザーモードのエントリーポイント
+    /// * `user_stack` - ユーザースタックのトップアドレス
+    /// * `kernel_stack` - カーネルスタックのアドレス
+    /// * `kernel_stack_size` - カーネルスタックのサイズ
+    pub fn new_usermode(
+        process_id: ProcessId,
+        name: &str,
+        user_entry: u64,
+        user_stack: u64,
+        kernel_stack: u64,
+        kernel_stack_size: usize,
+    ) -> Self {
+        let mut name_buf = [0u8; 32];
+        let bytes = name.as_bytes();
+        let len = core::cmp::min(bytes.len(), 32);
+        name_buf[..len].copy_from_slice(&bytes[..len]);
+
+        // カーネルスタックを設定（ユーザーモードからシステムコール時に使用）
+        let mut context = Context::new();
+        let stack_top = (kernel_stack + kernel_stack_size as u64) & !0xF;
+
+        // ユーザーモードへジャンプするトランポリン関数を設定
+        extern "C" fn usermode_entry_trampoline() -> ! {
+            // この関数は各スレッドが最初に実行される
+            // スレッド固有のuser_entryとuser_stackを取得してジャンプする
+            let tid = current_thread_id().expect("No current thread");
+            let (entry, stack) = with_thread(tid, |thread| {
+                (thread.user_entry(), thread.user_stack())
+            }).expect("Thread not found");
+
+            crate::debug!("Jumping to usermode: entry={:#x}, stack={:#x}", entry, stack);
+            unsafe {
+                crate::task::jump_to_usermode(entry, stack);
+            }
+        }
+
+        let stack_ptr = stack_top - 8;
+        unsafe {
+            let ret_addr = stack_ptr as *mut u64;
+            *ret_addr = thread_exit_handler as *const () as u64;
+        }
+
+        context.rsp = stack_ptr;
+        context.rbp = stack_top;
+        context.rip = usermode_entry_trampoline as *const () as u64;
+        context.rflags = 0x202;
+
+        crate::debug!(
+            "Creating usermode thread '{}': user_entry={:#x}, user_stack={:#x}",
+            name,
+            user_entry,
+            user_stack
+        );
+
+        Self {
+            id: ThreadId::new(),
+            process_id,
+            name: name_buf,
+            name_len: len,
+            state: ThreadState::Ready,
+            context,
+            kernel_stack,
+            kernel_stack_size,
+            user_entry,
+            user_stack,
+        }
+    }
+
+    /// ユーザーモードエントリポイントを取得
+    pub fn user_entry(&self) -> u64 {
+        self.user_entry
+    }
+
+    /// ユーザースタックを取得
+    pub fn user_stack(&self) -> u64 {
+        self.user_stack
     }
 
     /// スレッドIDを取得
@@ -106,8 +223,8 @@ impl Thread {
     }
 
     /// スレッド名を取得
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        core::str::from_utf8(&self.name[..self.name_len]).unwrap_or("???")
     }
 
     /// スレッドの状態を取得
@@ -128,6 +245,10 @@ impl Thread {
     /// コンテキストへの参照を取得
     pub fn context(&self) -> &Context {
         &self.context
+    }
+
+    pub fn kernel_stack_top(&self) -> u64 {
+        (self.kernel_stack + self.kernel_stack_size as u64) & !0xF
     }
 }
 
@@ -156,7 +277,7 @@ pub struct ThreadQueue {
 
 impl ThreadQueue {
     /// スレッドキューの最大容量
-    pub const MAX_THREADS: usize = 1024;
+    pub const MAX_THREADS: usize = 64;
 
     /// 新しいスレッドキューを作成
     pub const fn new() -> Self {
@@ -257,23 +378,12 @@ impl ThreadQueue {
             }
 
             if let Some(start_idx) = current_index {
-                // 現在のインデックスの次から検索
-                for i in (start_idx + 1)..Self::MAX_THREADS {
-                    if let Some(thread) = &self.threads[i] {
-                        if thread.state() == ThreadState::Ready {
-                            // インデックスを使って可変参照を返す
-                            return self.threads[i].as_mut();
-                        }
-                    }
-                }
-
-                // 見つからなければ先頭から現在のインデックスまで検索
-                for i in 0..=start_idx {
-                    if let Some(thread) = &self.threads[i] {
-                        if thread.state() == ThreadState::Ready {
-                            // インデックスを使って可変参照を返す
-                            return self.threads[i].as_mut();
-                        }
+                for i in (start_idx + 1..Self::MAX_THREADS).chain(0..=start_idx) {
+                    if self.threads[i]
+                        .as_ref()
+                        .is_some_and(|t| t.state() == ThreadState::Ready)
+                    {
+                        return self.threads[i].as_mut();
                     }
                 }
             }

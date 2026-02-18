@@ -8,13 +8,19 @@ use spin::Mutex;
 
 /// FIFOバッファ
 pub struct Fifo<T: Copy, const N: usize> {
+    /// バッファ
     buffer: Mutex<FifoInner<T, N>>,
 }
 
+/// FIFOインナー
 struct FifoInner<T: Copy, const N: usize> {
+    /// データ
     data: [Option<T>; N],
+    /// 書き込み先
     write_pos: usize,
+    /// 読み込み先
     read_pos: usize,
+    /// カウント
     count: usize,
 }
 

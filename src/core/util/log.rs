@@ -5,10 +5,15 @@ use core::sync::atomic::{AtomicU8, Ordering};
 /// ログレベル
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
+    /// システムトレース
     Trace,
+    /// デバッグ情報
     Debug,
+    /// インフォメーション
     Info,
+    /// 警告
     Warn,
+    /// エラー
     Error,
 }
 

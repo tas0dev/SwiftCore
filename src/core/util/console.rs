@@ -7,7 +7,7 @@ use spin::Mutex;
 use x86_64::instructions::port::Port;
 
 /// シリアルポート (COM1) - 割込み対応版
-static SERIAL: Mutex<SerialPort> = Mutex::new(SerialPort::new(0x3F8));
+pub static SERIAL: Mutex<SerialPort> = Mutex::new(SerialPort::new(0x3F8));
 
 /// 割込み無効化を伴うロック取得
 fn lock_serial<F, R>(f: F) -> R
@@ -70,7 +70,7 @@ impl SerialPort {
     }
 
     /// 1バイト送信
-    fn send_byte(&mut self, byte: u8) {
+    pub fn send_byte(&mut self, byte: u8) {
         unsafe {
             // 送信準備完了を待つ
             while self.line_status.read() & 0x20 == 0 {}

@@ -14,18 +14,42 @@ pub enum SyscallNumber {
     IpcSend = 3,
     /// IPC受信
     IpcRecv = 4,
-    /// コンソールへ書き込み
-    ConsoleWrite = 5,
-    /// initfs 読み込み
-    InitfsRead = 6,
-    /// 終了
-    Exit = 7,
-    /// キーボード1文字読み取り
-    KeyboardRead = 8,
+    /// Exec
+    Exec = 5,
+    /// プロセス終了
+    Exit = 6,
+    /// 書き込み
+    Write = 7,
+    /// 読み込み
+    Read = 8,
+    /// 現在のプロセスIDを取得
+    GetPid = 9,
     /// 現在のスレッドIDを取得
-    GetThreadId = 9,
-    /// スレッド名からIDを取得
-    GetThreadIdByName = 10,
+    GetTid = 10,
+    /// スリープ
+    Sleep = 11,
+    /// ファイルを開く
+    Open = 12,
+    /// ファイルを閉じる
+    Close = 13,
+    /// Fork
+    Fork = 14,
+    /// Wait
+    Wait = 15,
+    /// メモリブレーク
+    Brk = 16,
+    /// ファイルシーク
+    Lseek = 17,
+    /// ファイル情報取得
+    Fstat = 18,
+    /// 名前からプロセスIDを検索
+    FindProcessByName = 19,
+    /// カーネルログを出力
+    Log = 20,
+    /// I/Oポート入力
+    PortIn = 21,
+    /// I/Oポート出力
+    PortOut = 22,
 }
 
 /// 入力が空

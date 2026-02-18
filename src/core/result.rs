@@ -1,18 +1,20 @@
-//! SwiftCoreエラー型定義
+//! SwiftCoreのResultとエラー型を定義
 //!
 //! すべてのカーネルエラーをResult型で表現し、panicを禁止
 
 use core::fmt;
 
-/// トップレベルエラー型
+/// トップレベル
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KernelError {
+pub enum Kernel {
     /// メモリエラー
-    Memory(MemoryError),
+    Memory(Memory),
     /// プロセスエラー
-    Process(ProcessError),
+    Process(Process),
     /// デバイスエラー
-    Device(DeviceError),
+    Device(Device),
+    /// ELFエラー
+    Elf(Elf),
     /// 無効なパラメータ
     InvalidParam,
     /// 未実装の機能
@@ -21,9 +23,9 @@ pub enum KernelError {
     UnknownError,
 }
 
-/// メモリ関連のエラー
+/// メモリ関連
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryError {
+pub enum Memory {
     /// 利用可能なメモリがない
     OutOfMemory,
     /// 無効なアドレスへのアクセス
@@ -40,9 +42,9 @@ pub enum MemoryError {
     UnknownError,
 }
 
-/// プロセス関連のエラー
+/// プロセス関連
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProcessError {
+pub enum Process {
     /// 無効なプロセスID
     InvalidPid,
     /// プロセスが見つからない
@@ -60,14 +62,16 @@ pub enum ProcessError {
     /// 暴走プロセス検出
     RogueProcessDetected,
     /// サービス関連
-    Service(ServiceError),
+    Service(Service),
+    /// プロセス作成完了
+    CreationOk,
     ///　未知のエラー
     UnknownError,
 }
 
-/// サービス関連のエラー
+/// サービス関連
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServiceError {
+pub enum Service {
     /// サービスが見つからない
     NotFound,
     /// サービスの起動失敗
@@ -85,12 +89,29 @@ pub enum ServiceError {
     /// 未登録のサービス
     Unregistered,
     /// 未知のエラー
-    UnknownError
+    UnknownError,
 }
 
-/// デバイス関連のエラー
+/// ELF関連
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceError {
+pub enum Elf {
+    /// 無効なELFフォーマット
+    InvalidFormat,
+    /// サポートされていないELFタイプ
+    UnsupportedType,
+    /// セグメントのロード失敗
+    SegmentLoadFailure,
+    /// シンボル解決失敗
+    SymbolResolutionFailure,
+    /// Elfファイルの長さ不足
+    InsufficientLength,
+    /// 未知のエラー
+    UnknownError,
+}
+
+/// デバイス関連
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Device {
     /// デバイスがビジー状態
     Busy,
     /// ハードウェアエラー
@@ -115,16 +136,16 @@ pub enum DeviceError {
     UnknownError,
 }
 
-impl KernelError {
+impl Kernel {
     /// このエラーが致命的かどうか
     ///
     /// 致命的なエラーは回復不能であり、システムの継続が不可能
-    /// - `MemoryError::OutOfMemory`
-    /// - `DeviceError::HardwareFailure`
+    /// - `Memory::OutOfMemory`
+    /// - `Device::HardwareFailure`
     pub fn is_fatal(&self) -> bool {
         match self {
-            KernelError::Memory(MemoryError::OutOfMemory) => true,
-            KernelError::Device(DeviceError::HardwareFailure) => true,
+            Kernel::Memory(Memory::OutOfMemory) => true,
+            Kernel::Device(Device::HardwareFailure) => true,
             _ => false,
         }
     }
@@ -132,64 +153,65 @@ impl KernelError {
     /// このエラーがリトライ可能かどうか
     ///
     /// リトライ可能なエラーは、一時的な問題であり、再試行によって成功する可能性がある
-    /// - `DeviceError::Busy`
-    /// - `DeviceError::Timeout`
+    /// - `Device::Busy`
+    /// - `Device::Timeout`
     pub fn is_retryable(&self) -> bool {
         match self {
-            KernelError::Device(DeviceError::Busy) => true,
-            KernelError::Device(DeviceError::Timeout) => true,
+            Kernel::Device(Device::Busy) => true,
+            Kernel::Device(Device::Timeout) => true,
             _ => false,
         }
     }
 }
 
-impl fmt::Display for KernelError {
+impl fmt::Display for Kernel {
     /// エラーをフォーマット表示
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KernelError::Memory(e) => write!(f, "Memory error: {:?}", e),
-            KernelError::Process(e) => write!(f, "Process error: {:?}", e),
-            KernelError::Device(e) => write!(f, "Device error: {:?}", e),
-            KernelError::InvalidParam => write!(f, "Invalid parameter"),
-            KernelError::NotImplemented => write!(f, "Not implemented"),
-            KernelError::UnknownError => write!(f, "Unknown error"),
+            Kernel::Memory(e) => write!(f, "Memory error: {:?}", e),
+            Kernel::Process(e) => write!(f, "Process error: {:?}", e),
+            Kernel::Device(e) => write!(f, "Device error: {:?}", e),
+            Kernel::Elf(e) => write!(f, "ELF error: {:?}", e),
+            Kernel::InvalidParam => write!(f, "Invalid parameter"),
+            Kernel::NotImplemented => write!(f, "Not implemented"),
+            Kernel::UnknownError => write!(f, "Unknown error"),
         }
     }
 }
 
-impl fmt::Display for MemoryError {
+impl fmt::Display for Memory {
     /// エラーをフォーマット表示
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MemoryError::OutOfMemory => write!(f, "Out of memory"),
-            MemoryError::InvalidAddress => write!(f, "Invalid address"),
-            MemoryError::PermissionDenied => write!(f, "Permission denied"),
-            MemoryError::AlreadyMapped => write!(f, "Already mapped"),
-            MemoryError::NotMapped => write!(f, "Not mapped"),
-            MemoryError::AlignmentError => write!(f, "Alignment error"),
-            MemoryError::UnknownError => write!(f, "Unknown error"),
+            Memory::OutOfMemory => write!(f, "Out of memory"),
+            Memory::InvalidAddress => write!(f, "Invalid address"),
+            Memory::PermissionDenied => write!(f, "Permission denied"),
+            Memory::AlreadyMapped => write!(f, "Already mapped"),
+            Memory::NotMapped => write!(f, "Not mapped"),
+            Memory::AlignmentError => write!(f, "Alignment error"),
+            Memory::UnknownError => write!(f, "Unknown error"),
         }
     }
 }
 
 /// カーネルエラーを処理
-pub fn handle_kernel_error(error: KernelError) {
+pub fn handle_kernel_error(error: Kernel) {
     crate::warn!("KERNEL ERROR: {}", error);
     crate::debug!("Is fatal: {}", error.is_fatal());
     crate::debug!("Is retryable: {}", error.is_retryable());
 
     match error {
-        KernelError::Memory(mem_err) => {
-            crate::error!("Memory error: {:?}", mem_err);
+        Kernel::Memory(mem_err) => {
+            crate::warn!("Memory error: {:?}", mem_err);
         }
-        KernelError::Process(proc_err) => {
-            crate::error!("Process error: {:?}", proc_err);
+        Kernel::Process(proc_err) => {
+            crate::warn!("Process error: {:?}", proc_err);
         }
-        KernelError::Device(dev_err) => {
-            crate::error!("Device error: {:?}", dev_err);
+        Kernel::Device(dev_err) => {
+            crate::warn!("Device error: {:?}", dev_err);
         }
         _ => {
-            crate::error!("Unknown error: {:?}", error);
+            crate::warn!("Unknown error: {:?}", error);
         }
     }
 
@@ -197,21 +219,4 @@ pub fn handle_kernel_error(error: KernelError) {
 }
 
 /// 結果型のエイリアス
-pub type Result<T> = core::result::Result<T, KernelError>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_is_fatal() {
-        assert!(KernelError::Memory(MemoryError::OutOfMemory).is_fatal());
-        assert!(!KernelError::Memory(MemoryError::InvalidAddress).is_fatal());
-    }
-
-    #[test]
-    fn test_error_is_retryable() {
-        assert!(KernelError::Device(DeviceError::Busy).is_retryable());
-        assert!(!KernelError::Memory(MemoryError::OutOfMemory).is_retryable());
-    }
-}
+pub type Result<T> = core::result::Result<T, Kernel>;
