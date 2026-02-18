@@ -22,6 +22,7 @@ pub mod process;
 pub mod fs;
 /// ポートI/O関連のシステムコール
 pub mod port;
+/// libcのC関数
 pub mod cfunc;
 
 use core::panic::PanicInfo;

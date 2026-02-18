@@ -7,7 +7,7 @@ edition = "2021"
 swiftlib = { path = "../../user" }
 
 [features]
-default = []
+default = ["run_tests"]
 run_tests = []
 
 [profile.release]
