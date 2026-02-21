@@ -1,5 +1,6 @@
 use crate::task::ids::ThreadId;
 use crate::task::thread::THREAD_QUEUE;
+use crate::task::process::with_process;
 
 /// CPUコンテキスト（レジスタ保存用）
 #[derive(Debug, Clone, Copy)]
@@ -143,9 +144,10 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
     };
 
     // 次のスレッドのコンテキストへのポインタとカーネルスタックトップを取得
-    let (new_context_ptr, next_kstack_top) = if let Some(thread) = queue.get(next_id) {
+    let (new_context_ptr, next_kstack_top, next_process_id) = if let Some(thread) = queue.get(next_id) {
         let ptr = thread.context() as *const Context;
         let kstack = thread.kernel_stack_top();
+        let pid = thread.process_id();
         crate::debug!(
             "  Next context ptr: {:p}, rsp={:#x}, rip={:#x}, kstack={:#x}",
             ptr,
@@ -153,7 +155,7 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
             thread.context().rip,
             kstack
         );
-        (ptr, kstack)
+        (ptr, kstack, pid)
     } else {
         return; // 次のスレッドが見つからない
     };
@@ -163,6 +165,11 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
 
     // TSSのRSP0を更新
     crate::mem::tss::set_rsp0(next_kstack_top);
+
+    // 次のプロセスのページテーブルに切り替え
+    if let Some(pt_phys) = crate::task::with_process(next_process_id, |p| p.page_table()).flatten() {
+        crate::mem::paging::switch_page_table(pt_phys);
+    }
 
     crate::debug!("About to perform context switch...");
 

@@ -1,28 +1,6 @@
-#![no_std]
-#![no_main]
-
-extern crate alloc;
-
-use core::fmt::{self, Write};
-use swiftlib::io;
-use swiftlib::task;
-use swiftlib::process;
-
-// 簡易的な標準出力ライター
-struct Stdout;
-impl Write for Stdout {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        io::write_stdout(s.as_bytes());
-        Ok(())
-    }
-}
-
-macro_rules! println {
-    () => (print!("\n"));
-    ($($arg:tt)*) => ({
-        let _ = writeln!(&mut Stdout, $($arg)*);
-    });
-}
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 
 /// サービス定義
 struct ServiceDef {
@@ -37,95 +15,74 @@ struct TestApp {
     path: &'static str,
 }
 
-/// 起動するサービスのリスト（index.tomlから生成する想定）
-/// 現在は静的に定義
 const SERVICES: &[ServiceDef] = &[
-    ServiceDef {
-        name: "disk.service",
-        path: "disk.service",
-        order: 5,
-    },
-    ServiceDef {
-        name: "fs.service",
-        path: "fs.service",
-        order: 10,
-    },
-    // 将来的には他のサービスも追加
-    // ServiceDef { name: "net.service", path: "net.service", order: 20 },
+    ServiceDef { name: "disk.service", path: "disk.service", order: 5 },
+    ServiceDef { name: "fs.service", path: "fs.service", order: 10 },
 ];
 
-/// テストアプリケーションのリスト
 #[cfg(feature = "run_tests")]
 const TEST_APPS: &[TestApp] = &[
-    TestApp {
-        name: "tests",
-        path: "/tests.elf",
-    },
+    TestApp { name: "tests", path: "/tests.elf" },
 ];
 
 #[cfg(not(feature = "run_tests"))]
 const TEST_APPS: &[TestApp] = &[];
 
 /// サービスを起動する
-fn start_service(service: &ServiceDef) -> Result<u64, &'static str> {
+fn start_service(service: &ServiceDef) -> Result<u32, String> {
     println!("[CORE] Starting service: {} (order={})", service.name, service.order);
-    
-    // execシステムコールを使用してサービスを起動
-    match process::exec(service.path) {
-        Ok(pid) => {
+
+    // std::process::Command を使用
+    // SwiftCore側で fork/exec相当のシステムコールが実装されている前提
+    match Command::new(service.path)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn() 
+    {
+        Ok(child) => {
+            let pid = child.id();
             println!("[CORE] Started {} with PID {}", service.name, pid);
             
-            // サービスが初期化されるまで少し待つ
-            task::sleep(100);
+            // std::thread::sleep を使用
+            thread::sleep(Duration::from_millis(100));
             
             Ok(pid)
         }
-        Err(_) => {
-            println!("[CORE] Failed to start {}", service.name);
-            Err("exec failed")
+        Err(e) => {
+            let err_msg = format!("Failed to start {}: {}", service.name, e);
+            Err(err_msg)
         }
     }
 }
 
-#[no_mangle]
-pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
-    println!("[CORE] Service Manager Started");
-    
-    // すべてのサービスをorder順に起動
-    for service in SERVICES.iter() {
+fn main() {
+    println!("[CORE] Service Manager Started (using std)");
+
+    // サービス起動
+    for service in SERVICES {
         match start_service(service) {
-            Ok(pid) => {
-                println!("[CORE] ✓ {} is running (PID={})", service.name, pid);
-            }
-            Err(e) => {
-                println!("[CORE] ✗ Failed to start {}: {}", service.name, e);
-            }
+            Ok(pid) => println!("[CORE] ✓ {} is running (PID={})", service.name, pid),
+            Err(e) => println!("[CORE] ✗ {}", e),
         }
     }
-    
-    println!("[CORE] All services started. Entering monitoring loop...");
-    
-    // テストアプリケーションを起動（feature有効時のみ）
+
+    // テスト起動
     if !TEST_APPS.is_empty() {
         println!("[CORE] Starting test applications...");
-        for test in TEST_APPS.iter() {
+        for test in TEST_APPS {
             println!("[CORE] Running test: {}", test.name);
-            match process::exec(test.path) {
-                Ok(pid) => {
-                    println!("[CORE] Test {} started with PID {}", test.name, pid);
-                }
-                Err(_) => {
-                    println!("[CORE] Failed to start test {}", test.name);
-                }
+            if let Err(e) = Command::new(test.path).spawn() {
+                println!("[CORE] Failed to start test {}: {}", test.name, e);
             }
-            task::sleep(100);
+            thread::sleep(Duration::from_millis(100));
         }
-        println!("[CORE] All tests started.");
     }
-    
-    // サービス監視ループ
+
+    println!("[CORE] Entering monitoring loop...");
+
+    // 監視ループ
     loop {
-        task::sleep(1000); // 1秒ごとに監視
-        // TODO: サービスの状態チェック
+        thread::sleep(Duration::from_secs(1));
+        // TODO: ゾンビプロセス回収や再起動を行う
     }
 }

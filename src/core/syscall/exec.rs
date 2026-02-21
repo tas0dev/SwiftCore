@@ -41,6 +41,16 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         let entry = elf_loader::entry_point(data).unwrap_or(0);
         crate::debug!("ELF entry: {:#x}", entry);
 
+        // プロセス固有のページテーブルを作成
+        let new_pt_phys = match crate::mem::paging::create_user_page_table() {
+            Some(phys) => phys,
+            None => {
+                crate::warn!("Failed to create user page table for {}", process_name);
+                return crate::syscall::types::EINVAL;
+            }
+        };
+        crate::debug!("Created user page table at {:#x}", new_pt_phys);
+
         if let Some(eh) = elf_loader::parse_elf_header(data) {
             let phoff = eh.e_phoff as usize;
             let phentsz = eh.e_phentsize as usize;
@@ -60,7 +70,7 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                         crate::debug!("Mapping seg {} -> {:#x} (filesz={}, memsz={})", i, vaddr, filesz, memsz);
                         let seg_src = &data[src_off..src_off + filesz as usize];
 
-                        if let Err(e) = crate::mem::paging::map_and_copy_segment(vaddr, filesz, memsz, seg_src, writable, executable) {
+                        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, vaddr, filesz, memsz, seg_src, writable, executable) {
                             crate::warn!("Failed to map segment: {:?}", e);
                             return crate::syscall::types::EINVAL;
                         }
@@ -158,13 +168,13 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                       stack_base_vaddr, stack_end_vaddr, stack_size_pages, initial_rsp);
 
         // Map the lower 7 pages as zero-filled (writable, non-executable stack)
-        if let Err(e) = crate::mem::paging::map_and_copy_segment(stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true, false) {
+        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true, false) {
              crate::warn!("Failed to allocate user stack lower: {:?}", e);
              return crate::syscall::types::EINVAL;
         }
         // Map the top page with args (writable, non-executable stack)
         let top_page_vaddr = stack_end_vaddr - 4096;
-        if let Err(e) = crate::mem::paging::map_and_copy_segment(top_page_vaddr, 4096, 4096, &page_data, true, false) {
+        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, top_page_vaddr, 4096, 4096, &page_data, true, false) {
              crate::warn!("Failed to allocate user stack top: {:?}", e);
              return crate::syscall::types::EINVAL;
         }
@@ -172,7 +182,8 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         crate::debug!("User stack allocated successfully");
 
         // Create a process and a usermode thread
-        let proc = crate::task::Process::new(process_name, crate::task::PrivilegeLevel::User, None, 0);
+        let mut proc = crate::task::Process::new(process_name, crate::task::PrivilegeLevel::User, None, 0);
+        proc.set_page_table(new_pt_phys);
         let pid = proc.id();
         if crate::task::add_process(proc).is_none() {
             return crate::syscall::types::EINVAL;
