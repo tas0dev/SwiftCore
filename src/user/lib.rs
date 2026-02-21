@@ -26,7 +26,7 @@ pub mod port;
 pub mod libc;
 
 use core::panic::PanicInfo;
-use cfunc::*;
+use crate::libc::*;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -47,26 +47,15 @@ struct NewlibAllocator;
 
 unsafe impl GlobalAlloc for NewlibAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        memalign(layout.align(), layout.size())
+        libc::memalign(layout.align(), layout.size())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        free(ptr);
+        libc::free(ptr);
     }
 
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-         if layout.align() > 8 {
-             let new_ptr = memalign(layout.align(), new_size);
-             if !new_ptr.is_null() && !ptr.is_null() {
-                 let old_size = layout.size();
-                 let copy_size = if old_size < new_size { old_size } else { new_size };
-                 core::ptr::copy_nonoverlapping(ptr, new_ptr, copy_size);
-                 free(ptr);
-             }
-             new_ptr
-         } else {
-             realloc(ptr, new_size)
-         }
+    unsafe fn realloc(&self, ptr: *mut u8, _layout: Layout, new_size: usize) -> *mut u8 {
+        libc::realloc(ptr, new_size)
     }
 }
 

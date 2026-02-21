@@ -1,4 +1,3 @@
-#[no_mangle]
 pub unsafe extern "C" fn write(fd: i32, buf: *const u8, count: usize) -> isize {
     let slice = core::slice::from_raw_parts(buf, count);
     let ret = crate::io::write(fd as u64, slice);
@@ -10,7 +9,6 @@ pub unsafe extern "C" fn write(fd: i32, buf: *const u8, count: usize) -> isize {
     }
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn read(fd: i32, buf: *mut u8, count: usize) -> isize {
     let slice = core::slice::from_raw_parts_mut(buf, count);
     let ret = crate::io::read(fd as u64, slice);
@@ -22,19 +20,21 @@ pub unsafe extern "C" fn read(fd: i32, buf: *mut u8, count: usize) -> isize {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn open(path: *const u8, flags: i32) -> i32 {
-    // TODO: 実装する
-    -1
+pub unsafe extern "C" fn memalign(alignment: usize, size: usize) -> *mut u8 {
+    -1isize as *mut u8 // 仮の戻り値
 }
 
-#[no_mangle]
+pub unsafe extern "C" fn free(ptr: *mut u8) {
+    // TODO: メモリ解放のシステムコールを実装
+}
+
+pub unsafe extern "C" fn realloc(ptr: *mut u8, size: usize) -> *mut u8 {
+    // TODO: リサイズのシステムコールを実装
+    ptr
+}
+
+pub unsafe extern "C" fn open(_path: *const u8, _flags: i32) -> i32 { -1 }
+
 pub unsafe extern "C" fn close(fd: i32) -> i32 {
     crate::io::close(fd as u64) as i32
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn nanosleep(_req: *const (), _rem: *mut ()) -> i32 {
-    // TODO: 実装する
-    0
 }

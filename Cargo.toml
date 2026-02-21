@@ -33,3 +33,6 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[patch.crates-io]
+libc = { path = "src/libc" }
