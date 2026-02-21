@@ -81,19 +81,24 @@ pub fn brk(addr: u64) -> u64 {
 
         // 縮小または変化なし
         if addr <= current_brk {
-            // 特に何もしない
-             process.set_heap_end(addr);
-             return Ok(addr);
+            process.set_heap_end(addr);
+            return Ok(addr);
         }
 
-        // 拡大時にページをマップする
+        // プロセス固有のページテーブルアドレスを取得
+        let pt_phys = match process.page_table() {
+            Some(p) => p,
+            None => return Err(ENOSYS),
+        };
+
+        // 拡大時にページをプロセスのページテーブルにマップ（書き込み可能、実行不可）
         let start_page = (current_brk + 4095) & !4095;
         let end_page = (addr + 4095) & !4095;
 
         if end_page > start_page {
             let size = end_page - start_page;
-            // メモリ割り当て（書き込み可能、実行不可）
-            if let Err(_) = crate::mem::paging::map_and_copy_segment(
+            if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
+                pt_phys,
                 start_page,
                 0,
                 size,
@@ -101,7 +106,7 @@ pub fn brk(addr: u64) -> u64 {
                 true,
                 false
             ) {
-                 return Err(ENOSYS);
+                return Err(ENOSYS);
             }
         }
 

@@ -138,6 +138,19 @@ extern "C" fn syscall_handler_rust(
     arg4: u64,
 ) -> u64 {
     use crate::debug;
+    use core::sync::atomic::Ordering;
+
+    // syscall中（カーネルモード）でもCR3はユーザーのページテーブルのまま。
+    // カーネルが全物理メモリにアクセスできるよう、カーネルのCR3に切り替える。
+    let user_cr3 = {
+        let (frame, _) = x86_64::registers::control::Cr3::read();
+        let phys = frame.start_address().as_u64();
+        let kernel_l4 = crate::mem::paging::KERNEL_L4_PHYS.load(Ordering::Relaxed);
+        if kernel_l4 != 0 && kernel_l4 != phys {
+            unsafe { crate::mem::paging::switch_page_table(kernel_l4); }
+        }
+        phys
+    };
 
     debug!("SYSCALL: num={}, args=[{:#x}, {:#x}, {:#x}, {:#x}, {:#x}]", 
            num, arg0, arg1, arg2, arg3, arg4);
@@ -145,6 +158,14 @@ extern "C" fn syscall_handler_rust(
     let ret = dispatch(num, arg0, arg1, arg2, arg3, arg4);
 
     debug!("SYSCALL returned: {}", ret);
+
+    // ユーザーのCR3に戻す（カーネルのCR3と異なる場合のみ）
+    {
+        let kernel_l4 = crate::mem::paging::KERNEL_L4_PHYS.load(Ordering::Relaxed);
+        if user_cr3 != 0 && user_cr3 != kernel_l4 {
+            unsafe { crate::mem::paging::switch_page_table(user_cr3); }
+        }
+    }
 
     ret
 }
