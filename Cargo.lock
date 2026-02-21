@@ -257,3 +257,7 @@ dependencies = [
  "rustversion",
  "volatile",
 ]
+
+[[patch.unused]]
+name = "libc"
+version = "0.2.0"
