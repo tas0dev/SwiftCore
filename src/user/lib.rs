@@ -23,7 +23,7 @@ pub mod fs;
 /// ポートI/O関連のシステムコール
 pub mod port;
 /// libcのC関数
-pub mod cfunc;
+pub mod libc;
 
 use core::panic::PanicInfo;
 use cfunc::*;
