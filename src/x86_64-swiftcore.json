@@ -5,9 +5,8 @@
   "target-endian": "little",
   "target-pointer-width": 64,
   "target-c-int-width": 32,
-  "os": "linux",
-  "env": "gnu",
-  "target-family": ["unix"],
+  "os": "none",
+  "env": "",
   "vendor": "unknown",
   "linker-flavor": "ld.lld",
   "linker": "rust-lld",
@@ -17,9 +16,10 @@
   "features": "-mmx,-avx",
   "relocation-model": "static",
   "code-model": "small",
+  "no-default-libraries": true,
   "pre-link-args": {
     "ld.lld": [
-      "-T", "linker.ld"
+      "-T", "src/services/core/linker.ld"
     ]
   }
 }
