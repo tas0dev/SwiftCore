@@ -38,6 +38,8 @@ pub struct Thread {
     user_entry: u64,
     /// ユーザースタックトップ（0の場合はカーネルモードスレッド）
     user_stack: u64,
+    /// fork時に子プロセスへ渡すユーザー RFLAGS
+    fork_user_rflags: u64,
     /// TLS用 FS ベースレジスタ (arch_prctl ARCH_SET_FS で設定)
     fs_base: u64,
 }
@@ -128,6 +130,7 @@ impl Thread {
             kernel_stack_size,
             user_entry: 0,
             user_stack: 0,
+            fork_user_rflags: 0,
             fs_base: 0,
         }
     }
@@ -202,6 +205,7 @@ impl Thread {
             kernel_stack_size,
             user_entry,
             user_stack,
+            fork_user_rflags: 0,
             fs_base: 0,
         }
     }
@@ -219,6 +223,62 @@ impl Thread {
     /// TLS FSベースを取得
     pub fn fs_base(&self) -> u64 {
         self.fs_base
+    }
+
+    /// fork_user_rflags を取得
+    pub fn fork_user_rflags(&self) -> u64 {
+        self.fork_user_rflags
+    }
+
+    /// fork の子プロセス用スレッドを作成
+    ///
+    /// 子スレッドはユーザー空間で fork() の戻り値として 0 を返す
+    pub fn new_fork_child(
+        process_id: ProcessId,
+        user_rip: u64,
+        user_rsp: u64,
+        user_rflags: u64,
+        fs_base: u64,
+        kernel_stack: u64,
+        kernel_stack_size: usize,
+    ) -> Self {
+        let mut context = Context::new();
+        let stack_top = (kernel_stack + kernel_stack_size as u64) & !0xF;
+        let stack_ptr = stack_top - 8;
+        unsafe {
+            let ret_addr = stack_ptr as *mut u64;
+            *ret_addr = thread_exit_handler as *const () as u64;
+        }
+        context.rsp = stack_ptr;
+        context.rbp = stack_top;
+
+        extern "C" fn fork_child_trampoline() -> ! {
+            let tid = current_thread_id().expect("No current thread");
+            let (entry, stack, rflags, fs) = with_thread(tid, |thread| {
+                (thread.user_entry(), thread.user_stack(), thread.fork_user_rflags(), thread.fs_base())
+            }).expect("Thread not found");
+            unsafe {
+                crate::task::usermode::jump_to_usermode_fork_child(entry, stack, rflags, fs);
+            }
+        }
+
+        context.rip = fork_child_trampoline as *const () as u64;
+        context.rflags = 0x202;
+
+        Self {
+            id: ThreadId::new(),
+            process_id,
+            name: [b'f',b'o',b'r',b'k',0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            name_len: 4,
+            state: ThreadState::Ready,
+            context,
+            kernel_stack,
+            kernel_stack_size,
+            user_entry: user_rip,
+            user_stack: user_rsp,
+            fork_user_rflags: user_rflags,
+            fs_base,
+        }
     }
 
     /// TLS FSベースを設定
