@@ -38,8 +38,8 @@ impl Context {
     }
 }
 
-/// コンテキストスイッチ
-///
+/// 初回スイッチ時に使用するダミーコンテキスト（保存先として使われるが値は参照されない）
+static mut INITIAL_DUMMY_CONTEXT: Context = Context::new();
 /// 現在のスレッドから次のスレッドへコンテキストを切り替える
 ///
 /// Context構造体のレイアウト:
@@ -128,10 +128,9 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
             return; // 現在のスレッドが見つからない
         }
     } else {
-        // 現在のスレッドがない場合（初回スイッチ）
-        // ダミーのコンテキストを使用
+        // 現在のスレッドがない場合（初回スイッチ）はダミーに書き込む（値は捨てられる）
         crate::debug!("  No current thread (initial switch)");
-        core::ptr::null_mut()
+        unsafe { core::ptr::addr_of_mut!(INITIAL_DUMMY_CONTEXT) }
     };
 
     // 次のスレッドのコンテキストへのポインタとカーネルスタックトップを取得
@@ -217,7 +216,7 @@ pub unsafe fn switch_to_thread_from_isr(current_id: Option<ThreadId>, next_id: T
 
     let old_ctx_ptr = if let Some(id) = current_id {
         if let Some(thread) = queue.get_mut(id) { thread.context_mut() as *mut Context } else { return; }
-    } else { core::ptr::null_mut() };
+    } else { unsafe { core::ptr::addr_of_mut!(INITIAL_DUMMY_CONTEXT) } };
 
     let (new_ctx_ptr, next_priv, next_kstack_top, next_fs_base, next_process_id) = if let Some(thread) = queue.get(next_id) {
         let ptr = thread.context() as *const Context;
