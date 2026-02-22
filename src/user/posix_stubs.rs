@@ -354,15 +354,36 @@ pub unsafe extern "C" fn posix_spawnattr_setflags(_attr: *mut u8, _flags: i16) -
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn posix_spawnp(
-    _pid_out: *mut i32,
-    _file: *const u8,
+pub unsafe extern "C" fn posix_spawn(
+    pid_out: *mut i32,
+    path: *const u8,
     _file_actions: *const u8,
     _attr: *const u8,
     _argv: *const *const u8,
     _envp: *const *const u8,
 ) -> i32 {
-    -1 // ENOSYS
+    // カーネルの Exec syscall (516) を使って新しいプロセスを生成する
+    let ret = syscall1(SyscallNumber::Exec as u64, path as u64);
+    let ret_i64 = ret as i64;
+    if ret_i64 < 0 {
+        return (-ret_i64) as i32; // posix_spawn は正のerror numberを返す
+    }
+    if !pid_out.is_null() {
+        *pid_out = ret as i32;
+    }
+    0 // 成功
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn posix_spawnp(
+    pid_out: *mut i32,
+    file: *const u8,
+    file_actions: *const u8,
+    attr: *const u8,
+    argv: *const *const u8,
+    envp: *const *const u8,
+) -> i32 {
+    posix_spawn(pid_out, file, file_actions, attr, argv, envp)
 }
 
 // ─────────────────────────────────────────────────────────────

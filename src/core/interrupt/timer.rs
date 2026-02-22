@@ -12,104 +12,19 @@ static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 /// タイマー割り込みハンドラ（IRQ0）
 pub extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     // タイマーカウンタを増加
-    let _ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
-    crate::debug!("timer_interrupt_handler: tick={}", _ticks + 1);
+    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
 
     // スケジューラのティックを実行
-    // タイムスライスが尽きた場合はプリエンプトを行う
     let should_schedule = crate::task::scheduler_tick();
 
     // End of Interrupt (EOI) 信号をPICに送信
     super::send_eoi(32);
 
     // タイムスライスが尽きた場合はプリエンプト
+    // switch_context がカーネルスタック状態を保存するため、
+    // タイマーハンドラの iretq で自動的にユーザー/カーネルモードに戻る
     if should_schedule {
-        crate::info!("timer: should_schedule = true");
-        if let Some(next_id) = crate::task::schedule() {
-            crate::info!("timer: schedule() -> next={:?}", next_id);
-            let current = crate::task::current_thread_id();
-
-            crate::debug!("timer: current={:?}", current);
-
-            if Some(next_id) != current {
-                crate::info!(
-                    "timer: switching current != next, preparing saved context (next={:?})",
-                    next_id
-                );
-
-                // 次のスレッドがサービス特権の場合はスイッチを延期
-                let next_is_service = crate::task::with_thread(next_id, |t| {
-                    let proc = t.process_id();
-                    crate::task::with_process(proc, |p| p.privilege()).unwrap_or(crate::task::PrivilegeLevel::Core) == crate::task::PrivilegeLevel::Service
-                }) .unwrap_or(false);
-
-                if next_is_service {
-                    return;
-                }
-                // 割り込み時点の RIP を取得
-                let rip = _stack_frame.instruction_pointer.as_u64();
-
-                // 現在の汎用レジスタとスタックポインタ、RFLAGS を収集
-                let mut saved = crate::task::Context::new();
-
-                let mut rbx_val: u64 = 0;
-                let mut r12_val: u64 = 0;
-                let mut r13_val: u64 = 0;
-                let mut r14_val: u64 = 0;
-                let mut r15_val: u64 = 0;
-                let mut rbp_val: u64 = 0;
-                let mut rsp_val: u64 = 0;
-                let mut rflags_val: u64 = 0;
-
-                unsafe {
-                    core::arch::asm!(
-                        "mov {rbx}, rbx",
-                        "mov {r12}, r12",
-                        "mov {r13}, r13",
-                        "mov {r14}, r14",
-                        "mov {r15}, r15",
-                        "mov {rbp}, rbp",
-                        "mov {rsp}, rsp",
-                        "pushfq",
-                        "pop {rflags}",
-                        rbx = out(reg) rbx_val,
-                        r12 = out(reg) r12_val,
-                        r13 = out(reg) r13_val,
-                        r14 = out(reg) r14_val,
-                        r15 = out(reg) r15_val,
-                        rbp = out(reg) rbp_val,
-                        rsp = out(reg) rsp_val,
-                        rflags = out(reg) rflags_val,
-                    );
-                }
-
-                saved.rbx = rbx_val;
-                saved.r12 = r12_val;
-                saved.r13 = r13_val;
-                saved.r14 = r14_val;
-                saved.r15 = r15_val;
-                saved.rbp = rbp_val;
-                // Use the interrupt frame's saved stack pointer as the interrupted thread's RSP
-                saved.rsp = _stack_frame.stack_pointer.as_u64();
-                saved.rflags = rflags_val;
-
-                saved.rip = rip;
-
-                crate::debug!(
-                    "timer: saved context: rsp={:#x}, rip={:#x}, rflags={:#x}",
-                    saved.rsp,
-                    saved.rip,
-                    saved.rflags
-                );
-
-                // 次スレッドをCURRENTに設定してスイッチ実行
-                crate::task::set_current_thread(Some(next_id));
-                crate::info!("timer: set_current_thread({:?})", next_id);
-                unsafe {
-                    crate::task::context::switch_to_thread_from_isr(current, next_id, saved);
-                }
-            }
-        }
+        crate::task::schedule_and_switch();
     }
 }
 
