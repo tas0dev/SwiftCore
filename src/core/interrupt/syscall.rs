@@ -42,13 +42,4 @@ pub fn init_syscall() {
 }
 
 // Minimal syscall entry stub. This label is referenced by IA32_LSTAR.
-// Implementation: swapgs -> call existing int80 handler via interrupt instruction
-// (This is a pragmatic bridge until a full, register-preserving syscall path is implemented.)
-core::arch::global_asm!(r#"
-    .global syscall_entry
-syscall_entry:
-    swapgs
-    int 0x80
-    swapgs
-    sysretq
-"#);
+// Note: syscall_entry is defined in syscall/syscall_entry.rs as the real handler.
