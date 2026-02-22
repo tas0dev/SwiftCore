@@ -22,6 +22,8 @@ struct Selectors {
     user_code_selector: SegmentSelector,
     user_data_selector: SegmentSelector,
     tss_selector: SegmentSelector,
+    user_code_selector: SegmentSelector,
+    user_data_selector: SegmentSelector,
 }
 
 /// ユーザーモードのコードセグメントセレクタを取得
@@ -59,6 +61,9 @@ pub fn init() {
         let user_data_selector = gdt.append(Descriptor::user_data_segment());
         let user_code_selector = gdt.append(Descriptor::user_code_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(tss));
+        // user segments (RPL=3)
+        let user_code_selector = gdt.append(Descriptor::user_code_segment());
+        let user_data_selector = gdt.append(Descriptor::user_data_segment());
 
         info!("GDT entries created:");
         info!("  Code selector: {:?}", code_selector);
@@ -75,6 +80,8 @@ pub fn init() {
                 user_code_selector,
                 user_data_selector,
                 tss_selector,
+                user_code_selector,
+                user_data_selector,
             },
         )
     });
@@ -89,9 +96,60 @@ pub fn init() {
 
         // TSSをロード
         load_tss(selectors.tss_selector);
+        // Ensure user data descriptor has D/B cleared for long mode (avoid GPF on iretq)
+        // We modify the loaded GDT in-place: clear bit 54 (D/B) of the descriptor.
+        {
+            let mut gdtr: [u8; 10] = [0; 10];
+            core::arch::asm!("sgdt [{}]", in(reg) &mut gdtr, options(nostack));
+            let base = u64::from_le_bytes([
+                gdtr[2], gdtr[3], gdtr[4], gdtr[5], gdtr[6], gdtr[7], gdtr[8], gdtr[9],
+            ]);
+            let user_ds_index = selectors.user_data_selector.0 as usize >> 3;
+            let desc_ptr = (base + (user_ds_index * 8) as u64) as *mut u64;
+            let old = core::ptr::read_volatile(desc_ptr);
+            // clear D/B bit (bit 54)
+            let new = old & !(1u64 << 54);
+            core::ptr::write_volatile(desc_ptr, new);
+        }
     }
 
     info!("GDT loaded with TSS");
+}
+
+/// ユーザーモード用コードセレクタ（RPL=3）を返す
+pub fn user_code_selector() -> u16 {
+    GDT.get()
+        .expect("GDT not initialized")
+        .1
+        .user_code_selector
+        .0
+}
+
+/// ユーザーモード用データセレクタ（RPL=3）を返す
+pub fn user_data_selector() -> u16 {
+    GDT.get()
+        .expect("GDT not initialized")
+        .1
+        .user_data_selector
+        .0
+}
+
+/// カーネル用コードセレクタを返す
+pub fn kernel_code_selector() -> u16 {
+    GDT.get()
+        .expect("GDT not initialized")
+        .1
+        .code_selector
+        .0
+}
+
+/// カーネル用データセレクタを返す
+pub fn kernel_data_selector() -> u16 {
+    GDT.get()
+        .expect("GDT not initialized")
+        .1
+        .data_selector
+        .0
 }
 
 #[allow(unused)]
