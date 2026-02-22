@@ -15,7 +15,6 @@ mod types;
 pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS, EBADF, EFAULT, ENOENT, EPERM, SUCCESS};
 
 use core::arch::asm;
-use linux as linux_sys;
 use x86_64::structures::idt::InterruptStackFrame;
 
 /// システムコールのディスパッチ
@@ -34,8 +33,9 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64)
         x if x == SyscallNumber::RtSigaction as u64  => SUCCESS,   // スタブ
         x if x == SyscallNumber::RtSigprocmask as u64 => SUCCESS,  // スタブ
         x if x == SyscallNumber::GetPid as u64       => process::getpid(),
-        x if x == SyscallNumber::Clone as u64        => ENOSYS,    // TODO
-        x if x == SyscallNumber::Fork as u64         => ENOSYS,    // TODO
+        x if x == SyscallNumber::Clone as u64        => process::fork(),
+        x if x == SyscallNumber::Fork as u64         => process::fork(),
+        x if x == SyscallNumber::Execve as u64       => exec::execve_syscall(arg0, arg1, arg2),
         x if x == SyscallNumber::Wait as u64         => process::wait(arg0, arg1),
         x if x == SyscallNumber::GetTid as u64       => process::gettid(),
         x if x == SyscallNumber::Futex as u64        => process::futex(arg0, arg1 as u32, arg2, arg3),

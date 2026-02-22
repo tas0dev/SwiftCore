@@ -176,10 +176,6 @@ pub fn init(boot_info: &'static crate::BootInfo) {
 }
 
 /// 現在設定されている物理メモリオフセットを返す
-pub fn physical_memory_offset() -> u64 {
-    PHYSICAL_MEMORY_OFFSET.load(Ordering::Relaxed)
-}
-
 /// アクティブなレベル4ページテーブルへの参照を取得
 unsafe fn active_level_4_table(physical_memory_offset: u64) -> &'static mut PageTable {
     use x86_64::registers::control::Cr3;

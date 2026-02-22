@@ -25,4 +25,4 @@ pub use thread::{
     remove_thread, set_current_thread, thread_count, with_thread, with_thread_mut, Thread,
     ThreadQueue,
 };
-pub use usermode::jump_to_usermode;
+pub use usermode::{jump_to_usermode, jump_to_usermode_fork_child};

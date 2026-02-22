@@ -17,10 +17,16 @@ use core::sync::atomic::{AtomicU64, Ordering};
 pub static SYSCALL_KERNEL_RSP: AtomicU64 = AtomicU64::new(0);
 
 /// SYSCALL 入口でユーザー RSP を一時退避する領域 (シングルCPU用)
-static SYSCALL_TEMP_USER_RSP: AtomicU64 = AtomicU64::new(0);
+pub static SYSCALL_TEMP_USER_RSP: AtomicU64 = AtomicU64::new(0);
 
 /// SYSCALL 入口でユーザー FS ベースを一時退避する領域
 static SYSCALL_TEMP_USER_FSBASE: AtomicU64 = AtomicU64::new(0);
+
+/// SYSCALL 入口でユーザー RIP を保存する領域 (シングルCPU用)
+pub static SYSCALL_SAVED_USER_RIP: AtomicU64 = AtomicU64::new(0);
+
+/// SYSCALL 入口でユーザー RFLAGS を保存する領域 (シングルCPU用)
+pub static SYSCALL_SAVED_USER_RFLAGS: AtomicU64 = AtomicU64::new(0);
 
 /// SYSCALL 用カーネルスタック (初回スイッチまたはスレッド切り替え前に使用)
 #[repr(align(16))]
@@ -114,6 +120,10 @@ pub unsafe extern "C" fn syscall_entry() {
         // カーネルスタックに切り替え
         "mov rsp, [{kernel_rsp}]",
 
+        // ユーザー RIP (rcx) と RFLAGS (r11) をグローバルに保存 (fork用)
+        "mov [{user_rip}], rcx",
+        "mov [{user_rflags}], r11",
+
         // カーネルスタック上にコンテキストを保存
         // SYSRETQ に必要: RCX (user RIP), R11 (user RFLAGS), user RSP
         "push rcx",                         // user RIP
@@ -184,6 +194,8 @@ pub unsafe extern "C" fn syscall_entry() {
         temp_rsp   = sym SYSCALL_TEMP_USER_RSP,
         temp_fsbase = sym SYSCALL_TEMP_USER_FSBASE,
         kernel_rsp = sym SYSCALL_KERNEL_RSP,
+        user_rip   = sym SYSCALL_SAVED_USER_RIP,
+        user_rflags = sym SYSCALL_SAVED_USER_RFLAGS,
         dispatch   = sym super::syscall_dispatch_sysv,
     );
 }

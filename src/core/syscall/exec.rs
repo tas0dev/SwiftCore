@@ -225,3 +225,144 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
 
     crate::syscall::types::EINVAL
 }
+
+/// execve システムコール
+///
+/// 現在のプロセスイメージを新しいプログラムで置き換える
+///
+/// # 引数
+/// - `path_ptr`: 実行ファイルパスのポインタ (null 終端)
+/// - `_argv`: 引数ベクタ (現在は無視)
+/// - `_envp`: 環境変数ベクタ (現在は無視)
+pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
+    use crate::syscall::types::{EINVAL, ENOENT};
+
+    if path_ptr == 0 {
+        return EINVAL;
+    }
+
+    // ユーザー空間から null 終端パスを読み込む
+    let mut len = 0usize;
+    unsafe {
+        let mut p = path_ptr as *const u8;
+        while *p != 0 {
+            len += 1;
+            p = p.add(1);
+            if len > 256 {
+                return EINVAL;
+            }
+        }
+    }
+    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, len) };
+    let path = match core::str::from_utf8(path_bytes) {
+        Ok(s) => s,
+        Err(_) => return EINVAL,
+    };
+
+    // initfs からファイルを読み込む
+    let data_vec = match crate::init::fs::read(path) {
+        Some(d) => d,
+        None => return ENOENT,
+    };
+    let data: &[u8] = &data_vec;
+
+    // ELF エントリポイントとセグメントを解析
+    let entry = match crate::elf::loader::entry_point(data) {
+        Some(e) => e,
+        None => return EINVAL,
+    };
+
+    // 新しいページテーブルを作成
+    let new_pt_phys = match crate::mem::paging::create_user_page_table() {
+        Some(p) => p,
+        None => return EINVAL,
+    };
+
+    // PT_LOAD セグメントをマップ
+    if let Some(eh) = crate::elf::loader::parse_elf_header(data) {
+        let phoff = eh.e_phoff as usize;
+        let phentsz = eh.e_phentsize as usize;
+        let phnum = eh.e_phnum as usize;
+        for i in 0..phnum {
+            let off_hdr = phoff + i * phentsz;
+            if let Some(ph) = crate::elf::loader::parse_phdr(data, off_hdr) {
+                if ph.p_type == crate::elf::loader::PT_LOAD {
+                    let seg_src = &data[ph.p_offset as usize..ph.p_offset as usize + ph.p_filesz as usize];
+                    if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
+                        new_pt_phys, ph.p_vaddr, ph.p_filesz, ph.p_memsz,
+                        seg_src, (ph.p_flags & 0x2) != 0, (ph.p_flags & 0x1) != 0,
+                    ) {
+                        return EINVAL;
+                    }
+                }
+            }
+        }
+    }
+
+    // ユーザースタックをセットアップ (exec_internal と同じレイアウト)
+    let stack_end_vaddr: u64 = 0x0000_7FFF_FFF0_0000;
+    let stack_size_pages: usize = 8;
+    let stack_base_vaddr = stack_end_vaddr - (stack_size_pages as u64 * 4096);
+
+    let args = [path];
+    let mut string_block: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+    let mut argv_offsets: alloc::vec::Vec<usize> = alloc::vec::Vec::new();
+    for arg in args {
+        argv_offsets.push(string_block.len());
+        string_block.extend_from_slice(arg.as_bytes());
+        string_block.push(0);
+    }
+    let string_area_len = string_block.len();
+    let pointers_bytes = 8 + (args.len() * 8) + 8 + 8 + 16;
+    let total_data_needed = string_area_len + pointers_bytes;
+    let padding_len = (16 - (total_data_needed % 16)) % 16;
+    let total_size = total_data_needed + padding_len;
+    if total_size > 4096 { return EINVAL; }
+    let string_area_base = stack_end_vaddr - string_area_len as u64;
+    let initial_rsp = stack_end_vaddr - total_size as u64;
+
+    let mut page_data: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+    let page_offset = total_size % 4096;
+    let unused_space = 4096 - page_offset;
+    page_data.resize(unused_space, 0);
+    page_data.extend_from_slice(&(args.len() as u64).to_ne_bytes());
+    for off in argv_offsets {
+        page_data.extend_from_slice(&(string_area_base + off as u64).to_ne_bytes());
+    }
+    page_data.extend_from_slice(&0u64.to_ne_bytes()); // argv null
+    page_data.extend_from_slice(&0u64.to_ne_bytes()); // envp null
+    page_data.extend_from_slice(&0u64.to_ne_bytes()); // auxv[0]
+    page_data.extend_from_slice(&0u64.to_ne_bytes()); // auxv[1]
+    page_data.resize(page_data.len() + padding_len, 0);
+    page_data.extend_from_slice(&string_block);
+    assert_eq!(page_data.len(), 4096);
+
+    if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
+        new_pt_phys, stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true, false,
+    ) { return EINVAL; }
+    let top_page_vaddr = stack_end_vaddr - 4096;
+    if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
+        new_pt_phys, top_page_vaddr, 4096, 4096, &page_data, true, false,
+    ) { return EINVAL; }
+
+    // 現在のプロセスのページテーブルとヒープを更新
+    let current_tid = match crate::task::current_thread_id() {
+        Some(t) => t,
+        None => return EINVAL,
+    };
+    let pid = match crate::task::with_thread(current_tid, |t| t.process_id()) {
+        Some(p) => p,
+        None => return EINVAL,
+    };
+    crate::task::with_process_mut(pid, |p| {
+        p.set_page_table(new_pt_phys);
+        p.set_heap_start(0);
+        p.set_heap_end(0);
+    });
+
+    // 新しいページテーブルに切り替えてジャンプ
+    unsafe {
+        crate::mem::paging::switch_page_table(new_pt_phys);
+        crate::task::jump_to_usermode(entry, initial_rsp);
+    }
+}

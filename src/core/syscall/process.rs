@@ -125,7 +125,80 @@ pub fn brk(addr: u64) -> u64 {
 /// 
 /// プロセスを複製する
 pub fn fork() -> u64 {
-    ENOSYS
+    use crate::syscall::syscall_entry::{
+        SYSCALL_TEMP_USER_RSP, SYSCALL_SAVED_USER_RIP, SYSCALL_SAVED_USER_RFLAGS
+    };
+    use core::sync::atomic::Ordering;
+
+    let user_rsp = SYSCALL_TEMP_USER_RSP.load(Ordering::Relaxed);
+    let user_rip = SYSCALL_SAVED_USER_RIP.load(Ordering::Relaxed);
+    let user_rflags = SYSCALL_SAVED_USER_RFLAGS.load(Ordering::Relaxed);
+
+    if user_rip == 0 {
+        return ENOSYS;
+    }
+
+    // 現在のスレッド/プロセスを取得
+    let parent_tid = match crate::task::current_thread_id() {
+        Some(t) => t,
+        None => return ENOSYS,
+    };
+    let parent_pid = match crate::task::with_thread(parent_tid, |t| t.process_id()) {
+        Some(p) => p,
+        None => return ENOSYS,
+    };
+
+    // 親のページテーブルとヒープ状態を取得
+    let parent_pt = match crate::task::with_process(parent_pid, |p| p.page_table()) {
+        Some(Some(pt)) => pt,
+        _ => return ENOSYS,
+    };
+    let (parent_heap_start, parent_heap_end) = crate::task::with_process(parent_pid, |p| {
+        (p.heap_start(), p.heap_end())
+    }).unwrap_or((0, 0));
+
+    // 親の FS ベース (TLS) を取得
+    let fs_base = unsafe { crate::cpu::read_fs_base() };
+
+    // 子プロセスを作成 (親のページテーブルを共有: シングルプロセス前提)
+    let mut child_proc = crate::task::Process::new(
+        "fork_child",
+        crate::task::PrivilegeLevel::User,
+        Some(parent_pid),
+        0,
+    );
+    child_proc.set_page_table(parent_pt);
+    child_proc.set_heap_start(parent_heap_start);
+    child_proc.set_heap_end(parent_heap_end);
+    let child_pid = child_proc.id();
+
+    if crate::task::add_process(child_proc).is_none() {
+        return ENOSYS;
+    }
+
+    // 子スレッド用カーネルスタックを確保
+    let kstack = match crate::task::thread::allocate_kernel_stack(4096 * 4) {
+        Some(a) => a,
+        None => return ENOSYS,
+    };
+
+    // fork() で rax=0 を返す子スレッドを作成
+    let child_thread = crate::task::Thread::new_fork_child(
+        child_pid,
+        user_rip,
+        user_rsp,
+        user_rflags,
+        fs_base,
+        kstack,
+        4096 * 4,
+    );
+
+    if crate::task::add_thread(child_thread).is_none() {
+        return ENOSYS;
+    }
+
+    // 子 PID を親に返す
+    child_pid.as_u64()
 }
 
 /// Sleepシステムコール
