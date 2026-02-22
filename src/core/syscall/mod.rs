@@ -36,7 +36,7 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64)
         x if x == SyscallNumber::Clone as u64        => process::fork(),
         x if x == SyscallNumber::Fork as u64         => process::fork(),
         x if x == SyscallNumber::Execve as u64       => exec::execve_syscall(arg0, arg1, arg2),
-        x if x == SyscallNumber::Wait as u64         => process::wait(arg0, arg1),
+        x if x == SyscallNumber::Wait as u64         => process::wait(arg0, arg1, arg2),
         x if x == SyscallNumber::GetTid as u64       => process::gettid(),
         x if x == SyscallNumber::Futex as u64        => process::futex(arg0, arg1 as u32, arg2, arg3),
         x if x == SyscallNumber::ArchPrctl as u64    => process::arch_prctl(arg0, arg1),
@@ -155,8 +155,7 @@ extern "C" fn syscall_handler_rust(
 ) -> u64 {
     // ユーザーのページテーブルはカーネルのマッピングをすべて含んでいるため、
     // CR3の切り替えは不要。ユーザーメモリへのアクセスもそのまま可能。
-    let ret = dispatch(num, arg0, arg1, arg2, arg3, arg4);
-    ret
+    dispatch(num, arg0, arg1, arg2, arg3, arg4)
 }
 
 /// SYSCALL 命令エントリから呼ばれる System V ABI ディスパッチ関数

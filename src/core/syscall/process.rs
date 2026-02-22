@@ -223,9 +223,25 @@ pub fn sleep(milliseconds: u64) -> u64 {
     SUCCESS
 }
 
-/// Waitシステムコール
-pub fn wait(_pid: u64, _status_ptr: u64) -> u64 {
-    ENOSYS
+/// Waitシステムコール (wait4)
+///
+/// # 引数
+/// - `pid`: 待機するプロセスID (-1 = 任意の子プロセス)
+/// - `status_ptr`: 終了ステータスを書き込むポインタ (0 = 無視)
+/// - `options`: WNOHANG(0x1) = ノンブロッキング
+pub fn wait(_pid: u64, status_ptr: u64, options: u64) -> u64 {
+    const WNOHANG: u64 = 0x1;
+    // status = 0 (terminated normally, exit code 0)
+    if status_ptr != 0 {
+        unsafe { *(status_ptr as *mut i32) = 0; }
+    }
+    if options & WNOHANG != 0 {
+        // ノンブロッキング: まだ終了していない (pid=0 = 子プロセス実行中)
+        return 0;
+    }
+    // ブロッキング wait: 子プロセスが存在しない場合 ECHILD を返す
+    // 本来はここでスリープするが、シンプル実装のため ECHILD を返す
+    (-10i64) as u64 // ECHILD
 }
 
 /// Mmapシステムコール

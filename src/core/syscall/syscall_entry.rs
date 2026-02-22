@@ -83,6 +83,7 @@ pub fn init_syscall() {
         let base = core::ptr::addr_of!(SYSCALL_KERNEL_STACK) as u64;
         base + 4096 * 8
     };
+    
     SYSCALL_KERNEL_RSP.store(kstack_top, Ordering::Relaxed);
 
     crate::info!("SYSCALL/SYSRET initialized: LSTAR={:#x}", lstar_val);
