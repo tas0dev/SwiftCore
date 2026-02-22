@@ -314,9 +314,7 @@ extern "x86-interrupt" fn virtualization_handler(stack_frame: InterruptStackFram
 // ========================================
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    debug!("INTERRUPT: KEYBOARD");
-    // キーボード入力を処理
-    // TODO: キーボードドライバ実装
+    crate::driver::ps2_keyboard::handle_interrupt();
     super::send_eoi(33);
 }
 
