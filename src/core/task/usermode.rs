@@ -12,12 +12,12 @@ use crate::mem::gdt;
 /// # 注意
 /// この関数は戻らない
 pub unsafe fn jump_to_usermode(entry: u64, user_stack: u64) -> ! {
-    let user_cs = gdt::user_code_selector().0 as u64 | 3; // RPL=3
-    let user_ss = gdt::user_data_selector().0 as u64 | 3; // RPL=3
+    let user_cs = gdt::user_code_selector() as u64 | 3; // RPL=3
+    let user_ss = gdt::user_data_selector() as u64 | 3; // RPL=3
 
     // GDTエントリの内容を読み取って確認
-    let cs_selector = gdt::user_code_selector().0;
-    let ss_selector = gdt::user_data_selector().0;
+    let cs_selector = gdt::user_code_selector();
+    let ss_selector = gdt::user_data_selector();
 
     let gdtr = read_gdtr();
     let gdt_base = gdtr.0;
@@ -88,5 +88,42 @@ fn read_gdtr() -> (u64, u16) {
         gdtr[6], gdtr[7], gdtr[8], gdtr[9],
     ]);
     (base, limit)
+}
+
+/// fork の子プロセスとしてユーザーモードへジャンプする
+///
+/// iretq フレームを構築し、RAX=0 (fork の子側戻り値) でユーザーに復帰する
+pub unsafe fn jump_to_usermode_fork_child(entry: u64, stack: u64, user_rflags: u64, fs_base: u64) -> ! {
+    let user_cs = gdt::user_code_selector() as u64 | 3;
+    let user_ss = gdt::user_data_selector() as u64 | 3;
+    let fs_lo = fs_base as u32;
+    let fs_hi = (fs_base >> 32) as u32;
+    asm!(
+        "cli",
+        // FS ベースを IA32_FS_BASE MSR 経由で設定
+        "mov ecx, 0xC0000100",
+        "wrmsr",
+        // データセグメントをユーザーセグメントに設定
+        "mov ax, {ss:x}",
+        "mov ds, ax",
+        "mov es, ax",
+        // iretq フレームを構築: SS, RSP, RFLAGS, CS, RIP
+        "push {ss}",
+        "push {rsp}",
+        "push {rflags}",
+        "push {cs}",
+        "push {rip}",
+        // fork 子プロセスは rax=0 を返す
+        "xor eax, eax",
+        "iretq",
+        ss     = in(reg) user_ss,
+        rsp    = in(reg) stack,
+        rflags = in(reg) (user_rflags | 0x200),
+        cs     = in(reg) user_cs,
+        rip    = in(reg) entry,
+        in("eax") fs_lo,
+        in("edx") fs_hi,
+        options(noreturn)
+    )
 }
 

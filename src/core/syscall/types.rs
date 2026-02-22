@@ -28,6 +28,8 @@ pub enum SyscallNumber {
     Clone = 56,
     /// Fork
     Fork = 57,
+    /// Execve
+    Execve = 59,
     /// Wait
     Wait = 61,
     /// 現在のプロセスIDを取得
