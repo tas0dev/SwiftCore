@@ -6,6 +6,7 @@ use crate::result::{Kernel, Memory, Result};
 use crate::info;
 use spin::Mutex;
 use x86_64::{
+    registers::control::{Cr0, Cr0Flags},
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
     },
@@ -172,6 +173,11 @@ pub fn init(boot_info: &'static crate::BootInfo) {
         "Paging initialized. New table active. Mapped {} pages.",
         mapped_pages
     );
+}
+
+/// 現在設定されている物理メモリオフセットを返す
+pub fn physical_memory_offset() -> u64 {
+    PHYSICAL_MEMORY_OFFSET.load(Ordering::Relaxed)
 }
 
 /// アクティブなレベル4ページテーブルへの参照を取得
