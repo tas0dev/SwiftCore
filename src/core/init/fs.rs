@@ -126,20 +126,37 @@ fn data_block_number(
     inode: Inode,
     block_index: usize,
 ) -> Option<u32> {
+    let entries_per_block = sb.block_size as usize / 4;
+
+    // 直接ブロック (0-11)
     if block_index < 12 {
         return Some(inode.blocks[block_index]);
     }
-    let indirect = inode.blocks[12];
-    if indirect == 0 {
-        return None;
+
+    // 単一間接ブロック (12 .. 12+N)
+    let idx = block_index - 12;
+    if idx < entries_per_block {
+        let indirect = inode.blocks[12];
+        if indirect == 0 { return None; }
+        let block = block_slice(image, sb.block_size, indirect)?;
+        return read_u32(block, idx * 4);
     }
-    let entries_per_block = sb.block_size as usize / 4;
-    let idx = block_index.checked_sub(12)?;
-    if idx >= entries_per_block {
-        return None;
+
+    // 二重間接ブロック (12+N .. 12+N+N*N)
+    let idx2 = idx - entries_per_block;
+    if idx2 < entries_per_block * entries_per_block {
+        let dindirect = inode.blocks[13];
+        if dindirect == 0 { return None; }
+        let l1 = block_slice(image, sb.block_size, dindirect)?;
+        let l1_idx = idx2 / entries_per_block;
+        let l1_entry = read_u32(l1, l1_idx * 4)?;
+        if l1_entry == 0 { return None; }
+        let l2 = block_slice(image, sb.block_size, l1_entry)?;
+        let l2_idx = idx2 % entries_per_block;
+        return read_u32(l2, l2_idx * 4);
     }
-    let block = block_slice(image, sb.block_size, indirect)?;
-    read_u32(block, idx * 4)
+
+    None
 }
 
 fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<Vec<u8>> {

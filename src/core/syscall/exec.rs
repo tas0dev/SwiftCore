@@ -211,6 +211,8 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
             KERNEL_THREAD_STACK_SIZE
         );
 
+        crate::info!("exec: loaded '{}', entry={:#x}, pid={:?}", process_name, entry, pid);
+
         if crate::task::add_thread(thread).is_none() {
             crate::warn!("Failed to add thread");
             return crate::syscall::types::EINVAL;

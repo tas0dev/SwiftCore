@@ -509,12 +509,22 @@ pub fn map_and_copy_segment_to(
         // フレームを先にゼロ初期化（BSS領域のため）
         unsafe { core::ptr::write_bytes((phys_frame_addr + phys_off) as *mut u8, 0, 4096); }
 
-        // マップ（カレントCR3は変更しないので .ignore()）
+        // マップ（既にマップ済みの場合はアンマップして再マップ）
         unsafe {
             let mut alloc = frame::FRAME_ALLOCATOR.lock();
-            pt.map_to(page, frame, final_flags, alloc.as_mut().unwrap())
-                .map_err(|_| Kernel::Memory(Memory::InvalidAddress))?
-                .ignore();
+            match pt.map_to(page, frame, final_flags, alloc.as_mut().unwrap()) {
+                Ok(flush) => { flush.ignore(); }
+                Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(_)) => {
+                    // カーネルのアイデンティティマップが残っている場合：アンマップして再マップ
+                    drop(alloc);
+                    pt.unmap(page).map_err(|_| Kernel::Memory(Memory::InvalidAddress))?.1.ignore();
+                    let mut alloc = frame::FRAME_ALLOCATOR.lock();
+                    pt.map_to(page, frame, final_flags, alloc.as_mut().unwrap())
+                        .map_err(|_| Kernel::Memory(Memory::InvalidAddress))?
+                        .ignore();
+                }
+                Err(_) => return Err(Kernel::Memory(Memory::InvalidAddress)),
+            }
         }
 
         // ELFデータを物理フレームに直接書き込む（phys_off=0のためphys=virtで直接アクセス可能）
