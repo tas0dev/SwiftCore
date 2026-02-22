@@ -80,7 +80,7 @@ pub fn init_syscall() {
 
     // 初期カーネルスタックを設定
     let kstack_top = unsafe {
-        let base = SYSCALL_KERNEL_STACK.0.as_ptr() as u64;
+        let base = core::ptr::addr_of!(SYSCALL_KERNEL_STACK) as u64;
         base + 4096 * 8
     };
     SYSCALL_KERNEL_RSP.store(kstack_top, Ordering::Relaxed);
