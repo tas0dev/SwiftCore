@@ -38,6 +38,7 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
     crate::debug!("exec: path={}, name={}", path, process_name);
 
     if let Some(data) = crate::init::fs::read(path) {
+        let data: &[u8] = &data;
         let entry = elf_loader::entry_point(data).unwrap_or(0);
         crate::debug!("ELF entry: {:#x}", entry);
 
