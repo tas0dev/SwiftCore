@@ -17,10 +17,15 @@ static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
 /// GDTセレクタ
 #[allow(unused)]
 struct Selectors {
+    /// カーネルコードセグメントセレクタ
     code_selector: SegmentSelector,
+    /// カーネルデータセグメントセレクタ
     data_selector: SegmentSelector,
+    /// ユーザーモード用コードセグメントセレクタ
     user_code_selector: SegmentSelector,
+    /// ユーザーモード用データセグメントセレクタ
     user_data_selector: SegmentSelector,
+    /// TSSセレクタ
     tss_selector: SegmentSelector,
 }
 
@@ -127,6 +132,12 @@ pub fn kernel_data_selector() -> u16 {
 
 #[allow(unused)]
 /// データセグメントレジスタを設定
+/// 
+/// ## Arguments
+/// - `selector`: 設定するセグメントセレクタ
+/// 
+/// ## Safety
+/// - 呼び出し前にGDTが正しく初期化されている必要がある
 unsafe fn set_data_segments(selector: SegmentSelector) {
     asm!(
         "mov ds, {0:x}",
@@ -140,7 +151,10 @@ unsafe fn set_data_segments(selector: SegmentSelector) {
 }
 
 #[allow(unused)]
-/// コードセグメントを設定（far returnを使用）
+/// コードセグメントを設定
+/// 
+/// ## Arguments
+/// - `selector`: 設定するセグメントセレクタ
 unsafe fn set_cs(selector: SegmentSelector) {
     asm!(
         "push {sel}",
