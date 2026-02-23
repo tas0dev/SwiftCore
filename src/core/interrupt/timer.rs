@@ -10,6 +10,9 @@ use x86_64::structures::idt::InterruptStackFrame;
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 
 /// タイマー割り込みハンドラ（IRQ0）
+/// 
+/// ## Arguments
+/// - `_stack_frame`: 割り込み発生時のスタックフレーム
 pub extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     // タイマーカウンタを増加
     TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
@@ -29,6 +32,9 @@ pub extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptSta
 }
 
 /// 現在のタイマーティック数を取得
+/// 
+/// ## Returns
+/// - タイマーティック数（100回 = 1秒）
 pub fn get_ticks() -> u64 {
     TIMER_TICKS.load(Ordering::Relaxed)
 }
