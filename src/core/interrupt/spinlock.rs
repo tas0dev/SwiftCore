@@ -23,7 +23,7 @@ unsafe impl<T: Send> Send for SpinLock<T> {}
 impl<T> SpinLock<T> {
     /// 新しいスピンロックを作成
     /// 
-    /// ## Argments
+    /// ## Arguments
     /// - `data`: ロックで保護されるデータ
     /// 
     /// ## Returns
@@ -40,7 +40,7 @@ impl<T> SpinLock<T> {
     /// ロック取得時に割込みフラグの状態を保存し、
     /// 割込みを無効化する
     /// 
-    /// ## Argments
+    /// ## Arguments
     /// - `&self`: スピンロックの参照
     /// 
     /// ## Returns
@@ -74,7 +74,7 @@ impl<T> SpinLock<T> {
     ///
     /// ロックが既に取得されている場合はNoneを返す
     /// 
-    /// ## Argments
+    /// ## Arguments
     /// - `&self`: スピンロックの参照
     /// 
     /// ## Returns
@@ -106,7 +106,7 @@ impl<T> SpinLock<T> {
     ///
     /// 呼び出し側は、他のスレッドがデータにアクセスしていないことを保証する必要がある
     /// 
-    /// ## Argments
+    /// ## Arguments
     /// - `&self`: スピンロックの参照
     /// 
     /// ## Returns
