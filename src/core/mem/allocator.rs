@@ -6,9 +6,21 @@ use x86_64::{
     VirtAddr,
 };
 
+/// 仮想アドレス空間のどこからヒープを開始するか
 pub const HEAP_START: usize = 0x_4444_4444_0000;
-pub const HEAP_SIZE: usize = 100 * 1024; // 100 KiB
+/// ヒープのサイズ
+pub const HEAP_SIZE: usize = 32 * 1024 * 1024; // 32 MiB
 
+/// ヒープを初期化
+/// 
+/// ## Arguments
+/// - `mapper`: 仮想アドレスと物理アドレスのマッピングを管理するオブジェクト
+/// - `frame_allocator`: 物理フレームの割り当てを管理するオブジェクト
+/// - `heap_allocator_ptr`: ヒープアロケータのロックされたヒープへのポインタ
+///
+/// ## Returns 
+/// - `Ok(())` ヒープの初期化に成功した場合
+/// - `Err(MapToError<Size4KiB>)` マッピングのエラーが発生した場合
 pub fn init_heap(
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
@@ -22,6 +34,7 @@ pub fn init_heap(
         Page::range_inclusive(heap_start_page, heap_end_page)
     };
 
+    // ヒープの仮想アドレス空間を物理フレームにマッピング
     for page in page_range {
         let frame = frame_allocator
             .allocate_frame()
@@ -32,6 +45,7 @@ pub fn init_heap(
         }
     }
 
+    // ヒープアロケータを初期化
     unsafe {
         let allocator = &mut *(heap_allocator_ptr as *mut LockedHeap);
         allocator.lock().init(HEAP_START as *mut u8, HEAP_SIZE);

@@ -7,36 +7,58 @@ pub mod exec;
 pub mod io;
 pub mod process;
 pub mod fs;
+pub mod io_port;
+pub mod syscall_entry;
 
 mod types;
 
 pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS, EBADF, EFAULT, ENOENT, EPERM, SUCCESS};
 
 use core::arch::asm;
-use linux as linux_sys;
 use x86_64::structures::idt::InterruptStackFrame;
 
 /// システムコールのディスパッチ
-pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, _arg3: u64, _arg4: u64) -> u64 {
+pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64 {
     match num {
-        x if x == SyscallNumber::Yield as u64 => { task::yield_now(); 0 },
-        x if x == SyscallNumber::GetTicks as u64 => time::get_ticks(),
-        x if x == SyscallNumber::IpcSend as u64 => ipc::send(arg0, arg1, arg2),
-        x if x == SyscallNumber::IpcRecv as u64 => ipc::recv(arg0, arg1),
-        x if x == SyscallNumber::Exec as u64 => exec::exec_kernel(arg0),
-        x if x == SyscallNumber::Write as u64 => io::write(arg0, arg1, arg2),
-        x if x == SyscallNumber::Read as u64 => io::read(arg0, arg1, arg2),
-        x if x == SyscallNumber::Exit as u64 => process::exit(arg0),
-        x if x == SyscallNumber::GetPid as u64 => process::getpid(),
-        x if x == SyscallNumber::GetTid as u64 => process::gettid(),
-        x if x == SyscallNumber::Sleep as u64 => process::sleep(arg0),
-        x if x == SyscallNumber::Open as u64 => fs::open(arg0, arg1),
-        x if x == SyscallNumber::Close as u64 => fs::close(arg0),
-        x if x == SyscallNumber::Fork as u64 => process::fork(),
-        x if x == SyscallNumber::Wait as u64 => process::wait(arg0, arg1),
-        x if x == SyscallNumber::Brk as u64 => process::brk(arg0),
-        x if x == SyscallNumber::Lseek as u64 => fs::seek(arg0, arg1 as i64, arg2),
-        x if x == SyscallNumber::Fstat as u64 => fs::fstat(arg0, arg1),
+        // Linux互換syscall
+        x if x == SyscallNumber::Read as u64         => io::read(arg0, arg1, arg2),
+        x if x == SyscallNumber::Write as u64        => io::write(arg0, arg1, arg2),
+        x if x == SyscallNumber::Open as u64         => fs::open(arg0, arg1),
+        x if x == SyscallNumber::Close as u64        => fs::close(arg0),
+        x if x == SyscallNumber::Fstat as u64        => fs::fstat(arg0, arg1),
+        x if x == SyscallNumber::Lseek as u64        => fs::seek(arg0, arg1 as i64, arg2),
+        x if x == SyscallNumber::Mmap as u64         => process::mmap(arg0, arg1, arg2, arg3, arg4),
+        x if x == SyscallNumber::Munmap as u64       => process::munmap(arg0, arg1),
+        x if x == SyscallNumber::Brk as u64          => process::brk(arg0),
+        x if x == SyscallNumber::RtSigaction as u64  => SUCCESS,   // スタブ
+        x if x == SyscallNumber::RtSigprocmask as u64 => SUCCESS,  // スタブ
+        x if x == SyscallNumber::GetPid as u64       => process::getpid(),
+        x if x == SyscallNumber::Clone as u64        => process::fork(),
+        x if x == SyscallNumber::Fork as u64         => process::fork(),
+        x if x == SyscallNumber::Execve as u64       => exec::execve_syscall(arg0, arg1, arg2),
+        x if x == SyscallNumber::Wait as u64         => process::wait(arg0, arg1, arg2),
+        x if x == SyscallNumber::GetTid as u64       => process::gettid(),
+        x if x == SyscallNumber::Futex as u64        => process::futex(arg0, arg1 as u32, arg2, arg3),
+        x if x == SyscallNumber::ArchPrctl as u64    => process::arch_prctl(arg0, arg1),
+        x if x == SyscallNumber::ClockGettime as u64 => time::clock_gettime(arg0, arg1),
+        x if x == SyscallNumber::Getcwd as u64       => fs::getcwd(arg0, arg1),
+        x if x == SyscallNumber::Exit as u64         => process::exit(arg0),
+        x if x == SyscallNumber::ExitGroup as u64    => process::exit(arg0),
+
+        // SwiftCore独自syscall
+        x if x == SyscallNumber::Yield as u64        => { task::yield_now(); SUCCESS },
+        x if x == SyscallNumber::GetTicks as u64     => time::get_ticks(),
+        x if x == SyscallNumber::IpcSend as u64      => ipc::send(arg0, arg1, arg2),
+        x if x == SyscallNumber::IpcRecv as u64      => ipc::recv(arg0, arg1),
+        x if x == SyscallNumber::Exec as u64         => exec::exec_kernel(arg0),
+        x if x == SyscallNumber::Sleep as u64        => process::sleep(arg0),
+        x if x == SyscallNumber::Log as u64          => io::log(arg0, arg1, arg2),
+        x if x == SyscallNumber::PortIn as u64       => io_port::port_in(arg0, arg1),
+        x if x == SyscallNumber::PortOut as u64      => io_port::port_out(arg0, arg1, arg2),
+        x if x == SyscallNumber::Mkdir as u64        => fs::mkdir(arg0, arg1),
+        x if x == SyscallNumber::Rmdir as u64        => fs::rmdir(arg0),
+        x if x == SyscallNumber::Readdir as u64      => fs::readdir(arg0, arg1, arg2),
+        x if x == SyscallNumber::Chdir as u64        => fs::chdir(arg0),
         x if x == SyscallNumber::FindProcessByName as u64 => process::find_process_by_name(arg0, arg1),
         _ => ENOSYS,
     }
@@ -131,14 +153,23 @@ extern "C" fn syscall_handler_rust(
     arg3: u64,
     arg4: u64,
 ) -> u64 {
-    use crate::debug;
+    // ユーザーのページテーブルはカーネルのマッピングをすべて含んでいるため、
+    // CR3の切り替えは不要。ユーザーメモリへのアクセスもそのまま可能。
+    dispatch(num, arg0, arg1, arg2, arg3, arg4)
+}
 
-    debug!("SYSCALL: num={}, args=[{:#x}, {:#x}, {:#x}, {:#x}, {:#x}]", 
-           num, arg0, arg1, arg2, arg3, arg4);
-
-    let ret = dispatch(num, arg0, arg1, arg2, arg3, arg4);
-
-    debug!("SYSCALL returned: {}", ret);
-
-    ret
+/// SYSCALL 命令エントリから呼ばれる System V ABI ディスパッチ関数
+///
+/// syscall_entry.rs の naked asm から `call {dispatch}` で呼ばれる。
+/// System V ABI: 引数は rdi, rsi, rdx, rcx, r8, r9 の順。
+#[no_mangle]
+pub extern "sysv64" fn syscall_dispatch_sysv(
+    num: u64,
+    arg0: u64,
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+) -> u64 {
+    syscall_handler_rust(num, arg0, arg1, arg2, arg3, arg4)
 }

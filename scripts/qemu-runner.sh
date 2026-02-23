@@ -42,7 +42,6 @@ trap "rm -rf $TEMP_DIR" EXIT
     mkdir -p "$TEMP_DIR/esp/EFI/BOOT"
     cp "$SRC" "$TEMP_DIR/esp/EFI/BOOT/BOOTX64.EFI"
     DRIVE_ARG="fat:rw:$TEMP_DIR/esp"
-fi
 
 exec qemu-system-x86_64 \
     -bios "$OVMF" \
