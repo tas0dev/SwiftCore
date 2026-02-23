@@ -73,3 +73,88 @@ pub fn stat(_path_ptr: u64, _stat_ptr: u64) -> u64 {
     // TODO: ファイルシステムを実装後に対応
     ENOSYS
 }
+
+/// Mkdirシステムコール（未実装）
+///
+/// ディレクトリを作成する
+///
+/// # 引数
+/// - `_path_ptr`: ディレクトリパスへのポインタ
+/// - `_mode`: パーミッション
+///
+/// # 戻り値
+/// 成功時はSUCCESS、エラー時はエラーコード
+pub fn mkdir(_path_ptr: u64, _mode: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    ENOSYS
+}
+
+/// Rmdirシステムコール（未実装）
+///
+/// ディレクトリを削除する
+///
+/// # 引数
+/// - `_path_ptr`: ディレクトリパスへのポインタ
+///
+/// # 戻り値
+/// 成功時はSUCCESS、エラー時はエラーコード
+pub fn rmdir(_path_ptr: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    ENOSYS
+}
+
+/// Readdirシステムコール（未実装）
+///
+/// ディレクトリエントリを読み取る
+///
+/// # 引数
+/// - `_fd`: ディレクトリのファイルディスクリプタ
+/// - `_buf_ptr`: バッファへのポインタ
+/// - `_buf_len`: バッファサイズ
+///
+/// # 戻り値
+/// 読み取ったバイト数、またはエラーコード
+pub fn readdir(_fd: u64, _buf_ptr: u64, _buf_len: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    ENOSYS
+}
+
+/// Chdirシステムコール（未実装）
+///
+/// カレントディレクトリを変更する
+///
+/// # 引数
+/// - `_path_ptr`: ディレクトリパスへのポインタ
+///
+/// # 戻り値
+/// 成功時はSUCCESS、エラー時はエラーコード
+pub fn chdir(_path_ptr: u64) -> u64 {
+    // TODO: ファイルシステムを実装後に対応
+    ENOSYS
+}
+
+/// Getcwdシステムコール（簡易実装）
+///
+/// カレントディレクトリを取得する
+///
+/// # 引数
+/// - `buf_ptr`: バッファへのポインタ
+/// - `size`: バッファサイズ
+///
+/// # 戻り値
+/// 成功時はbuf_ptr、エラー時はエラーコード
+pub fn getcwd(buf_ptr: u64, size: u64) -> u64 {
+    if buf_ptr == 0 || size == 0 {
+        return super::types::EINVAL;
+    }
+    // 暫定実装: "/" を返す
+    let cwd = b"/\0";
+    if (size as usize) < cwd.len() {
+        return super::types::EINVAL;
+    }
+    unsafe {
+        core::ptr::copy_nonoverlapping(cwd.as_ptr(), buf_ptr as *mut u8, cwd.len());
+    }
+    buf_ptr
+}
+

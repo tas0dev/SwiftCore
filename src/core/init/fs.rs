@@ -1,67 +1,162 @@
-//! 起動時にメモリへ展開済みのext2 (read-only)
+//! 起動時にメモリへ展開済みのファイルシステム (read-only)
+//!
+//! - root 直下＋サブディレクトリ対応
+//! - 直接ブロック + 単一間接ブロック対応
+//! - 動的バッファで任意サイズのファイルを読み取り可能
 
 use core::str;
+use alloc::vec::Vec;
 
-const EXT2_MAGIC: u16 = 0xEF53;
-const EXT2_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/initfs.ext2"));
+/// EXT2ファイルシステムのマジックナンバー
+pub const EXT2_MAGIC: u16 = 0xEF53;
+/// ビルドスクリプトで生成されたイメージデータ
+pub const EXT2_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/initfs.ext2"));
 
+/// スーパーブロックの構造体
 #[derive(Debug, Clone, Copy)]
 struct Superblock {
+    /// ブロックサイズ (1024 << log_block_size)
     block_size: u32,
+    /// inodeのサイズ
     inode_size: u16,
+    /// グループあたりのinode数
     inodes_per_group: u32,
 }
 
+/// グループディスクリプタの構造体
 #[derive(Debug, Clone, Copy)]
 struct GroupDesc {
+    /// inodeテーブルの開始ブロック番号
     inode_table: u32,
 }
 
+/// inodeの構造体
 #[derive(Debug, Clone, Copy)]
 struct Inode {
+    /// ファイルの種類とアクセス権限
     mode: u16,
+    /// ファイルサイズ
     size: u32,
+    /// 直接ブロック + 単一間接ブロック + 二重間接ブロックのブロック番号
     blocks: [u32; 15],
 }
 
-#[derive(Debug, Clone, Copy)]
+/// ファイルシステムのエントリ（ファイル名とデータ）
+#[derive(Debug, Clone)]
 pub struct FsEntry<'a> {
+    /// ファイル名
     pub name: &'a str,
-    pub data: &'a [u8],
+    /// ファイルデータ
+    pub data: Vec<u8>,
 }
 
+/// ファイルシステムのエントリを列挙するイテレータ
 pub struct FsEntries<'a> {
+    /// イメージ全体のバイトスライス
     image: &'a [u8],
+    /// スーパーブロックの情報
     sb: Superblock,
+    /// 対象ディレクトリのinode
     inode: Inode,
+    /// 現在のブロックインデックス
     block_idx: usize,
+    /// 現在のブロック内のオフセット
     offset: usize,
+    /// ディレクトリ内の残りバイト数
     remaining_bytes: usize,
 }
 
+/// initfsを初期化して情報を出力する
+pub fn init() {
+    let sb = match superblock(EXT2_IMAGE) {
+        Some(sb) => sb,
+        None => {
+            crate::warn!("initfs: invalid image");
+            return;
+        }
+    };
+
+    let root = match inode(EXT2_IMAGE, sb, 2) {
+        Some(inode) if is_dir(inode.mode) => inode,
+        _ => {
+            crate::warn!("initfs: invalid root inode");
+            return;
+        }
+    };
+
+    crate::debug!(
+        "initfs: block_size={} inode_size={}",
+        sb.block_size,
+        sb.inode_size
+    );
+
+    let mut count = 0usize;
+    for entry in FsEntries::new(EXT2_IMAGE, sb, root) {
+        crate::debug!("initfs: {} ({} bytes)", entry.name, entry.data.len());
+        count += 1;
+    }
+    crate::debug!("initfs: {} entries", count);
+}
+
+/// ファイルを取得
+/// 
+/// ## Arguments
+/// - `name`: ルートからのパス（例: "hello.txt", "dir/sub.txt"）
+/// 
+/// ## Returns
+/// - ファイルが存在すれば内容のバイトベクタ、存在しなければNone
+pub fn read(name: &str) -> Option<Vec<u8>> {
+    read_path(name)
+}
+
+/// ファイル一覧を取得（root直下）
+/// 
+/// ## Returns
+/// - root直下のファイルとサブディレクトリを列挙するイテレータ
+pub fn entries() -> FsEntries<'static> {
+    let sb = superblock(EXT2_IMAGE).unwrap_or(Superblock {
+        block_size: 1024,
+        inode_size: 128,
+        inodes_per_group: 0,
+    });
+    let root = inode(EXT2_IMAGE, sb, 2).unwrap_or(Inode {
+        mode: 0,
+        size: 0,
+        blocks: [0; 15],
+    });
+    FsEntries::new(EXT2_IMAGE, sb, root)
+}
+
+/// 2バイトのリトルエンディアン整数を読み取る
 fn read_u16(image: &[u8], offset: usize) -> Option<u16> {
     let bytes = image.get(offset..offset + 2)?;
     Some(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
+/// 4バイトのリトルエンディアン整数を読み取る
 fn read_u32(image: &[u8], offset: usize) -> Option<u32> {
     let bytes = image.get(offset..offset + 4)?;
     Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
+/// スーパーブロックを読み取る
 fn superblock(image: &[u8]) -> Option<Superblock> {
     if image.len() < 2048 {
         return None;
     }
+    
     let sb_off = 1024;
     let magic = read_u16(image, sb_off + 56)?;
+    
     if magic != EXT2_MAGIC {
         return None;
     }
+    
     let log_block_size = read_u32(image, sb_off + 24)?;
     let block_size = 1024u32.checked_shl(log_block_size)?;
     let inode_size = read_u16(image, sb_off + 88)?;
     let inodes_per_group = read_u32(image, sb_off + 40)?;
+    
     Some(Superblock {
         block_size,
         inode_size,
@@ -121,44 +216,50 @@ fn data_block_number(
     inode: Inode,
     block_index: usize,
 ) -> Option<u32> {
+    let entries_per_block = sb.block_size as usize / 4;
+
+    // 直接ブロック (0-11)
     if block_index < 12 {
         return Some(inode.blocks[block_index]);
     }
-    let indirect = inode.blocks[12];
-    if indirect == 0 {
-        return None;
+
+    // 単一間接ブロック (12 .. 12+N)
+    let idx = block_index - 12;
+    if idx < entries_per_block {
+        let indirect = inode.blocks[12];
+        if indirect == 0 { return None; }
+        let block = block_slice(image, sb.block_size, indirect)?;
+        return read_u32(block, idx * 4);
     }
-    let entries_per_block = sb.block_size as usize / 4;
-    let idx = block_index.checked_sub(12)?;
-    if idx >= entries_per_block {
-        return None;
+
+    // 二重間接ブロック (12+N .. 12+N+N*N)
+    let idx2 = idx - entries_per_block;
+    if idx2 < entries_per_block * entries_per_block {
+        let dindirect = inode.blocks[13];
+        if dindirect == 0 { return None; }
+        let l1 = block_slice(image, sb.block_size, dindirect)?;
+        let l1_idx = idx2 / entries_per_block;
+        let l1_entry = read_u32(l1, l1_idx * 4)?;
+        if l1_entry == 0 { return None; }
+        let l2 = block_slice(image, sb.block_size, l1_entry)?;
+        let l2_idx = idx2 % entries_per_block;
+        return read_u32(l2, l2_idx * 4);
     }
-    let block = block_slice(image, sb.block_size, indirect)?;
-    read_u32(block, idx * 4)
+
+    None
 }
 
-const READ_BUFFER_SIZE: usize = 64 * 1024;
-
-#[repr(align(16))]
-struct ReadBuffer([u8; READ_BUFFER_SIZE]);
-
-static mut READ_BUFFER: ReadBuffer = ReadBuffer([0; READ_BUFFER_SIZE]);
-
-fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<&'static [u8]> {
+fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<Vec<u8>> {
     let inode = inode(image, sb, inode_num)?;
     if is_dir(inode.mode) {
-        return Some(&[]);
+        return Some(Vec::new());
     }
     if inode.size == 0 {
-        return Some(&[]);
+        return Some(Vec::new());
     }
     let size = inode.size as usize;
-    if size > READ_BUFFER_SIZE {
-        crate::warn!("File size {} exceeds buffer size {}", size, READ_BUFFER_SIZE);
-        return None;
-    }
     let blocks_needed = (size + sb.block_size as usize - 1) / sb.block_size as usize;
-    let mut written = 0usize;
+    let mut buf = Vec::with_capacity(size);
 
     crate::debug!("read_inode_data: inode={}, size={}, blocks_needed={}", inode_num, size, blocks_needed);
 
@@ -169,32 +270,18 @@ fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<&'sta
             return None;
         }
         let block = block_slice(image, sb.block_size, block_num)?;
-        let to_copy = core::cmp::min(block.len(), size - written);
-        
+        let to_copy = core::cmp::min(block.len(), size - buf.len());
+
         crate::debug!("  block_idx={}, block_num={}, to_copy={}, written={}", 
-                     block_idx, block_num, to_copy, written);
-        
-        unsafe {
-            let dst = core::ptr::addr_of_mut!(READ_BUFFER)
-                .cast::<ReadBuffer>()
-                .cast::<u8>()
-                .add(written);
-            core::ptr::copy_nonoverlapping(
-                block.as_ptr(),
-                dst,
-                to_copy
-            );
-        }
-        written += to_copy;
-        if written >= size {
+                     block_idx, block_num, to_copy, buf.len());
+
+        buf.extend_from_slice(&block[..to_copy]);
+        if buf.len() >= size {
             break;
         }
     }
 
-    unsafe { 
-        let buf_ptr = core::ptr::addr_of!(READ_BUFFER).cast::<ReadBuffer>();
-        Some(core::slice::from_raw_parts((*buf_ptr).0.as_ptr(), size))
-    }
+    Some(buf)
 }
 
 impl<'a> FsEntries<'a> {
@@ -248,7 +335,7 @@ impl<'a> Iterator for FsEntries<'a> {
 
             let name_bytes = data.get(base + 8..base + 8 + name_len)?;
             let name = str::from_utf8(name_bytes).ok()?;
-            let data = read_inode_data(self.image, self.sb, inode).unwrap_or(&[]);
+            let data = read_inode_data(self.image, self.sb, inode).unwrap_or_default();
             return Some(FsEntry { name, data });
         }
     }
@@ -293,7 +380,7 @@ fn find_inode_in_dir(image: &[u8], sb: Superblock, dir_inode: Inode, name: &str)
     None
 }
 
-fn read_path(path: &str) -> Option<&'static [u8]> {
+fn read_path(path: &str) -> Option<Vec<u8>> {
     let sb = superblock(EXT2_IMAGE)?;
     let mut current = inode(EXT2_IMAGE, sb, 2)?; // root
 
@@ -318,56 +405,4 @@ fn read_path(path: &str) -> Option<&'static [u8]> {
         current = next_inode;
     }
     None
-}
-
-/// 初期FSを初期化して情報を出力
-pub fn init() {
-    let sb = match superblock(EXT2_IMAGE) {
-        Some(sb) => sb,
-        None => {
-            crate::warn!("initfs(ext2): invalid image");
-            return;
-        }
-    };
-
-    let root = match inode(EXT2_IMAGE, sb, 2) {
-        Some(inode) if is_dir(inode.mode) => inode,
-        _ => {
-            crate::warn!("initfs(ext2): invalid root inode");
-            return;
-        }
-    };
-
-    crate::debug!(
-        "initfs(ext2): block_size={} inode_size={}",
-        sb.block_size,
-        sb.inode_size
-    );
-
-    let mut count = 0usize;
-    for entry in FsEntries::new(EXT2_IMAGE, sb, root) {
-        crate::debug!("initfs(ext2): {} ({} bytes)", entry.name, entry.data.len());
-        count += 1;
-    }
-    crate::debug!("initfs(ext2): {} entries", count);
-}
-
-/// ファイルを取得
-pub fn read(name: &str) -> Option<&'static [u8]> {
-    read_path(name)
-}
-
-/// ファイル一覧を取得（root直下）
-pub fn entries() -> FsEntries<'static> {
-    let sb = superblock(EXT2_IMAGE).unwrap_or(Superblock {
-        block_size: 1024,
-        inode_size: 128,
-        inodes_per_group: 0,
-    });
-    let root = inode(EXT2_IMAGE, sb, 2).unwrap_or(Inode {
-        mode: 0,
-        size: 0,
-        blocks: [0; 15],
-    });
-    FsEntries::new(EXT2_IMAGE, sb, root)
 }

@@ -53,7 +53,6 @@ pub fn init() {
 
         // ハードウェア割り込みハンドラ（32-47番）
         idt[32].set_handler_fn(super::timer::timer_interrupt_handler); // Timer
-        idt[33].set_handler_fn(keyboard_interrupt_handler); // Keyboard
 
         // それ以外のハードウェア割り込みはとりあえずスタブ
         for i in 34..48 {
@@ -91,44 +90,82 @@ pub fn init() {
     );
 }
 
-// ========================================
-// CPU例外ハンドラ
-// ========================================
-
+/// CPU例外ハンドラ
+/// 
+/// 一般的なCPU例外（例: ゼロ除算、無効命令など）を処理するためのハンドラ
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn divide_error_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: DIVIDE ERROR");
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// デバッグ例外ハンドラ
+/// 
+/// デバッグ例外は、ブレークポイントやシングルステップなどのデバッグイベントで発生する
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn debug_handler(stack_frame: InterruptStackFrame) {
     debug!("EXCEPTION: DEBUG");
     debug!("{:#?}", stack_frame);
 }
 
+/// NMI (Non-Maskable Interrupt) ハンドラ
+/// 
+/// NMIはマスクできない割り込みで、通常はハードウェアの障害や緊急事態を知らせるために使用される
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn nmi_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: NON-MASKABLE INTERRUPT");
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// ブレークポイント例外ハンドラ
+/// 
+/// ブレークポイント例外は、INT3命令によって発生する。デバッグ目的で使用する
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
     warn!("EXCEPTION: BREAKPOINT");
     debug!("{:#?}", stack_frame);
 }
 
+/// オーバーフロー例外ハンドラ
+/// 
+/// オーバーフロー例外は、INTO命令によって発生する。算術演算の結果がオーバーフローした場合に使用される
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn overflow_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: OVERFLOW");
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// BOUND RANGE EXCEEDED例外ハンドラ
+/// 
+/// BOUND RANGE EXCEEDED例外は、BOUND命令によって発生する。配列の範囲外アクセスなどで使用される
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn bound_range_exceeded_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: BOUND RANGE EXCEEDED");
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// 無効命令例外ハンドラ
+/// 
+/// 無効命令例外は、CPUが認識できない命令が実行されたときに発生する。ユーザーモードで発生した場合はプロセスを終了させ、カーネルモードで発生した場合はシステム全体を停止する
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFrame) {
     // ユーザーモードかチェック（code_segmentのRPLビットを確認）
     let is_user_mode = stack_frame.code_segment.rpl() == x86_64::PrivilegeLevel::Ring3;
@@ -145,39 +182,73 @@ extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFram
     }
 }
 
+/// デバイス利用不可例外ハンドラ
+/// 
+/// デバイス利用不可例外は、FPUやSIMD命令を使用しようとしたときに、対応するデバイスが利用できない場合に発生する。通常はFPUの初期化が必要な場合に発生することが多い
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn device_not_available_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: DEVICE NOT AVAILABLE");
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// ダブルフォルト例外ハンドラ
+/// 
+/// ダブルフォルトは、例外が発生した際にさらに例外が発生した場合に発生する。通常はスタックオーバーフローや重大なシステムエラーが原因で発生することが多い。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// - `error_code`: ダブルフォルトのエラーコード（通常は0だが、特定の条件下で値が設定されることがある）
 extern "x86-interrupt" fn double_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) -> ! {
     error!("EXCEPTION: DOUBLE FAULT");
     error!("Error code: {:#x}", error_code);
-    debug!("{:#?}", stack_frame);
+    error!("{:#?}", stack_frame);
     halt_forever();
 }
 
+/// TSS無効例外ハンドラ
+/// 
+/// TSS無効例外は、タスクスイッチングや特定のスタック操作が行われた際に、TSSが無効である場合に発生する。通常はTSSの設定ミスや不正なタスクスイッチングが原因で発生することが多い。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// - `error_code`: TSS無効例外のエラーコード（通常は0だが、特定の条件下で値が設定されることがある）
 extern "x86-interrupt" fn invalid_tss_handler(stack_frame: InterruptStackFrame, error_code: u64) {
     error!("EXCEPTION: INVALID TSS");
     error!("Error code: {:#x}", error_code);
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// セグメント不存在例外ハンドラ
+/// 
+/// セグメント不存在例外は、セグメントレジスタが無効なセグメントを指している場合に発生する。通常はGDTやLDTの設定ミスが原因で発生することが多い。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// - `error_code`: セグメント不存在例外のエラーコード（通常は0だが、特定の条件下で値が設定されることがある）
 extern "x86-interrupt" fn segment_not_present_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
     error!("EXCEPTION: SEGMENT NOT PRESENT");
     error!("Error code: {:#x}", error_code);
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// スタックセグメントフォルト例外ハンドラ
+/// 
+/// スタックセグメントフォルトは、スタックセグメントにアクセスしようとした際に、スタックセグメントが無効である場合に発生する。通常はスタックオーバーフローや不正なスタック操作が原因で発生することが多い。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// - `error_code`: スタックセグメントフォルトのエラーコード（通常は0だが、特定の条件下で値が設定されることがある）
 extern "x86-interrupt" fn stack_segment_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
@@ -187,7 +258,7 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
     error!("EXCEPTION: STACK SEGMENT FAULT ({})",
            if is_user_mode { "USER MODE" } else { "KERNEL MODE" });
     error!("Error code: {:#x}", error_code);
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     
     if is_user_mode {
         error!("Terminating faulting user process");
@@ -197,6 +268,13 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
     }
 }
 
+/// 一般保護例外ハンドラ
+/// 
+/// 一般保護例外は、セグメント違反やアクセス違反などの保護違反が発生した場合に発生する。ユーザーモードで発生した場合はプロセスを終了させ、カーネルモードで発生した場合はシステム全体を停止する。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// - `error_code`: 一般保護例外のエラーコード（エラーコードのビットフィールドには、外部割り込みか、どのテーブルからの例外かなどの情報が含まれる）
 extern "x86-interrupt" fn general_protection_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
@@ -223,7 +301,7 @@ extern "x86-interrupt" fn general_protection_fault_handler(
            },
            index);
 
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     
     if is_user_mode {
         error!("Terminating faulting user process");
@@ -233,6 +311,13 @@ extern "x86-interrupt" fn general_protection_fault_handler(
     }
 }
 
+/// ページフォルト例外ハンドラ
+///
+/// ページフォルトは、仮想メモリ管理に関連する例外で、アクセス違反やページの不在などが原因で発生する。ユーザーモードで発生した場合はプロセスを終了させ、カーネルモードで発生した場合はシステム全体を停止する。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// - `error_code`: ページフォルトのエラーコード（エラーコードのビットフィールドには、ページが存在しないか、書き込みアクセスか、ユーザーモードかなどの情報が含まれる）
 extern "x86-interrupt" fn page_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: x86_64::structures::idt::PageFaultErrorCode,
@@ -270,54 +355,88 @@ extern "x86-interrupt" fn page_fault_handler(
     } else {
         // カーネルモードでのページフォルト: システム全体を停止
         error!("FATAL: Page fault in kernel mode!");
-        debug!("{:#?}", stack_frame);
+        error!("{:#?}", stack_frame);
+        error!("Please report this to https://github.com/tas0dev/SwiftCore/issues with the above log details. :(");
         halt_cpu();
     }
 }
 
+/// x87浮動小数点例外ハンドラ
+///
+/// x87浮動小数点例外は、x87 FPU命令の実行中にエラーが発生した場合に発生する。通常はFPUの状態が不正な場合や、無効な操作が行われた場合に発生することが多い。
+/// ユーザーモードで発生した場合はプロセスを終了させ、カーネルモードで発生した場合はシステム全体を停止する。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn x87_floating_point_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: X87 FLOATING POINT");
     debug!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// アライメントチェック例外ハンドラ
+///
+/// アライメントチェック例外は、特定のデータアクセスが適切にアライメントされていない場合に発生する。通常は、CPUが要求するアライメント要件を満たさないメモリアクセスが原因で発生することが多い。
+/// ユーザーモードで発生した場合はプロセスを終了させ、カーネルモードで発生した場合はシステム全体を停止する。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// - `error_code`: アライメントチェック例外のエラーコード（エラーコードのビットフィールドには、ユーザーモードか、外部割り込みかなどの情報が含まれる）
 extern "x86-interrupt" fn alignment_check_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
     error!("EXCEPTION: ALIGNMENT CHECK");
     error!("Error code: {:#x}", error_code);
-    debug!("{:#?}", stack_frame);
+    warn!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// マシンチェック例外ハンドラ
+///
+/// マシンチェック例外は、ハードウェアの障害や重大なエラーが発生した場合に発生する。通常はCPUやメモリの障害、電源の問題などが原因で発生することが多い。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn machine_check_handler(stack_frame: InterruptStackFrame) -> ! {
     error!("EXCEPTION: MACHINE CHECK");
-    debug!("{:#?}", stack_frame);
+    error!("{:#?}", stack_frame);
     halt_forever();
 }
 
+/// SIMD浮動小数点例外ハンドラ
+/// SIMD浮動小数点例外は、SIMD命令の実行中にエラーが発生した場合に発生する。通常は、SIMDレジスタの状態が不正な場合や、無効な操作が行われた場合に発生することが多い。
+/// ユーザーモードで発生した場合はプロセスを終了させ、カーネルモードで発生した場合はシステム全体を停止する。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn simd_floating_point_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: SIMD FLOATING POINT");
     debug!("{:#?}", stack_frame);
     halt_cpu();
 }
 
+/// 仮想化例外ハンドラ
+/// 仮想化例外は、仮想化機能を使用している環境で、仮想化関連のエラーが発生した場合に発生する。通常は、仮想化機能の設定ミスや、仮想化環境でサポートされていない操作が原因で発生することが多い。
+/// ユーザーモードで発生した場合はプロセスを終了させ、カーネルモードで発生した場合はシステム全体を停止する。
+/// 
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
 extern "x86-interrupt" fn virtualization_handler(stack_frame: InterruptStackFrame) {
     error!("EXCEPTION: VIRTUALIZATION");
     debug!("{:#?}", stack_frame);
     halt_cpu();
 }
 
-// ========================================
-// ハードウェア割り込みハンドラ
-// ========================================
-
-extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    crate::driver::ps2_keyboard::handle_interrupt();
-    super::send_eoi(33);
-}
-
+/// 一般的な割り込みハンドラ（スタブ）
+/// 
+/// 一般的なハードウェア割り込み（例: キーボード、マウス、ネットワークカードなど）を処理するためのスタブハンドラ
+/// とりあえず、割り込みが発生したことをログに出力し、EOIを送信するだけの簡単な実装
+///
+/// ## Arguments
+/// - `stack_frame`: 割り込み発生時のCPU状態を表す構造体
+/// 
+/// このハンドラは、将来的に各デバイスに対応した具体的な処理を実装するためのプレースホルダとして使用される予定
 extern "x86-interrupt" fn generic_interrupt_handler(_stack_frame: InterruptStackFrame) {
     debug!("INTERRUPT: GENERIC");
     // EOIを送信
@@ -326,10 +445,6 @@ extern "x86-interrupt" fn generic_interrupt_handler(_stack_frame: InterruptStack
         super::pic::PIC_MASTER.end_of_interrupt();
     }
 }
-
-// ========================================
-// ヘルパー関数
-// ========================================
 
 /// CPU割り込みを無効化してシステムを停止
 fn halt_cpu() {

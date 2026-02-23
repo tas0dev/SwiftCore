@@ -17,36 +17,19 @@ static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
 /// GDTセレクタ
 #[allow(unused)]
 struct Selectors {
+    /// カーネルコードセグメントセレクタ
     code_selector: SegmentSelector,
+    /// カーネルデータセグメントセレクタ
     data_selector: SegmentSelector,
+    /// ユーザーモード用コードセグメントセレクタ
     user_code_selector: SegmentSelector,
+    /// ユーザーモード用データセグメントセレクタ
     user_data_selector: SegmentSelector,
+    /// TSSセレクタ
     tss_selector: SegmentSelector,
-    user_code_selector: SegmentSelector,
-    user_data_selector: SegmentSelector,
 }
 
-/// ユーザーモードのコードセグメントセレクタを取得
-pub fn user_code_selector() -> SegmentSelector {
-    GDT.get().expect("GDT not initialized").1.user_code_selector
-}
-
-/// ユーザーモードのデータセグメントセレクタを取得
-pub fn user_data_selector() -> SegmentSelector {
-    GDT.get().expect("GDT not initialized").1.user_data_selector
-}
-
-/// カーネルのコードセグメントセレクタを取得
-pub fn code_selector() -> SegmentSelector {
-    GDT.get().expect("GDT not initialized").1.code_selector
-}
-
-/// カーネルのデータセグメントセレクタを取得
-pub fn data_selector() -> SegmentSelector {
-    GDT.get().expect("GDT not initialized").1.data_selector
-}
-
-/// GDTを初期化
+/// カーネルのコードセグメントセレクタを取得 (GDT初期化に内部使用)
 pub fn init() {
     info!("Initializing GDT...");
 
@@ -61,9 +44,6 @@ pub fn init() {
         let user_data_selector = gdt.append(Descriptor::user_data_segment());
         let user_code_selector = gdt.append(Descriptor::user_code_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(tss));
-        // user segments (RPL=3)
-        let user_code_selector = gdt.append(Descriptor::user_code_segment());
-        let user_data_selector = gdt.append(Descriptor::user_data_segment());
 
         info!("GDT entries created:");
         info!("  Code selector: {:?}", code_selector);
@@ -80,8 +60,6 @@ pub fn init() {
                 user_code_selector,
                 user_data_selector,
                 tss_selector,
-                user_code_selector,
-                user_data_selector,
             },
         )
     });
@@ -154,6 +132,12 @@ pub fn kernel_data_selector() -> u16 {
 
 #[allow(unused)]
 /// データセグメントレジスタを設定
+/// 
+/// ## Arguments
+/// - `selector`: 設定するセグメントセレクタ
+/// 
+/// ## Safety
+/// - 呼び出し前にGDTが正しく初期化されている必要がある
 unsafe fn set_data_segments(selector: SegmentSelector) {
     asm!(
         "mov ds, {0:x}",
@@ -167,7 +151,10 @@ unsafe fn set_data_segments(selector: SegmentSelector) {
 }
 
 #[allow(unused)]
-/// コードセグメントを設定（far returnを使用）
+/// コードセグメントを設定
+/// 
+/// ## Arguments
+/// - `selector`: 設定するセグメントセレクタ
 unsafe fn set_cs(selector: SegmentSelector) {
     asm!(
         "push {sel}",

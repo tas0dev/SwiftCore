@@ -33,8 +33,6 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
         );
     }
 
-    driver::ps2_keyboard::init();
-
     // 先にフレームアロケータを初期化
     mem::init_frame_allocator(memory_map)?;
 
@@ -55,6 +53,9 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
     // (In production this may be controlled by userland service manager.)
     crate::task::init_scheduler();
     interrupt::enable_timer_interrupt();
+
+    // SYSCALL/SYSRET 命令サポートを初期化
+    crate::syscall::syscall_entry::init_syscall();
 
     Ok(memory_map)
 }
