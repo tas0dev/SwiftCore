@@ -13,6 +13,9 @@ pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 static TSS: Once<TaskStateSegment> = Once::new();
 
 /// TSSを初期化して返す
+/// 
+/// ## Returns
+/// - 初期化されたTSSへの参照
 #[allow(unused_unsafe)]
 pub fn init() -> &'static TaskStateSegment {
     info!("Initializing TSS...");
@@ -52,6 +55,9 @@ pub fn init() -> &'static TaskStateSegment {
 /// Ring 0スタック (RSP0) を更新
 ///
 /// コンテキストスイッチ時に呼び出し、次のスレッドのカーネルスタックを設定する
+/// 
+/// ## Arguments
+/// - `rsp`: 新しいRSP0の値 (次のスレッドのカーネルスタックのアドレス)
 pub fn set_rsp0(rsp: u64) {
     if let Some(tss) = TSS.get() {
         // TSSは参照として取得されるが、RSP0は実行時に変更する必要があるため、
