@@ -8,8 +8,7 @@ use spin::Mutex;
 use x86_64::{
     registers::control::{Cr0, Cr0Flags},
     structures::paging::{
-        mapper::MapToError, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB,
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
     },
     VirtAddr,
 };
@@ -17,11 +16,18 @@ use crate::mem::frame;
 use uefi::table::boot::MemoryType as UefiMemoryType;
 use x86_64::registers::control::{Cr3, Cr3Flags};
 
-
+/// アクティブなページテーブルへのグローバル参照と物理メモリオフセット
 pub static PAGE_TABLE: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
+/// 物理メモリオフセット（init時に設定） - 仮想アドレス = 物理アドレス + オフセット
 pub static PHYS_OFFSET: Mutex<Option<u64>> = Mutex::new(None);
+/// カーネルの元のL4ページテーブルの物理アドレス（init時に設定）
+pub static KERNEL_L4_PHYS: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
 
 /// ページングシステムを初期化
+/// 
+/// ## Arguments
+/// - `boot_info`: ブートローダーから提供される情報（メモリマップ、物理メモリオフセットなど）
 pub fn init(boot_info: &'static crate::BootInfo) {
     info!("Initializing paging...");
 
@@ -162,6 +168,8 @@ pub fn init(boot_info: &'static crate::BootInfo) {
         Cr3::write(l4_frame, Cr3Flags::empty());
         *PAGE_TABLE.lock() = Some(page_table);
         *PHYS_OFFSET.lock() = Some(physical_memory_offset);
+        // カーネルの元のページテーブルアドレスを保存
+        KERNEL_L4_PHYS.store(l4_table_addr, core::sync::atomic::Ordering::Relaxed);
     }
     crate::debug!("Switched CR3 successfully.");
 
@@ -171,12 +179,13 @@ pub fn init(boot_info: &'static crate::BootInfo) {
     );
 }
 
-/// 現在設定されている物理メモリオフセットを返す
-pub fn physical_memory_offset() -> u64 {
-    PHYSICAL_MEMORY_OFFSET.load(Ordering::Relaxed)
-}
-
 /// アクティブなレベル4ページテーブルへの参照を取得
+/// 
+/// ## Arguments
+/// - `physical_memory_offset`: カーネルが使用する物理メモリオフセット（仮想アドレス = 物理アドレス + オフセット）
+/// 
+/// ## Returns
+/// アクティブなレベル4ページテーブルへのミュータブル参照
 unsafe fn active_level_4_table(physical_memory_offset: u64) -> &'static mut PageTable {
     use x86_64::registers::control::Cr3;
 
@@ -189,6 +198,14 @@ unsafe fn active_level_4_table(physical_memory_offset: u64) -> &'static mut Page
 }
 
 /// ページをマップ
+/// 
+/// ## Arguments
+/// - `page`: マップする仮想ページ
+/// - `frame`: マップ先の物理フレーム
+/// - `flags`: ページテーブルエントリのフラグ（例: PRESENT, WRITABLE, USER_ACCESSIBLEなど）
+/// 
+/// ## Returns
+/// 成功した場合は `Ok(())`、失敗した場合はエラーを返す
 pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<()> {
     let mut page_table_lock = PAGE_TABLE.lock();
     let page_table = page_table_lock
@@ -221,6 +238,12 @@ pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<(
 }
 
 /// 仮想アドレスを物理アドレスに変換
+/// 
+/// ## Arguments
+/// - `addr`: 変換する仮想アドレス
+/// 
+/// ## Returns
+/// 変換された物理アドレス、または変換できない場合は `None`
 pub fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
     use x86_64::structures::paging::mapper::Translate;
 
@@ -228,13 +251,28 @@ pub fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
     page_table.as_ref()?.translate_addr(addr)
 }
 
-/// Get the physical memory offset used by the kernel (virtual = phys + offset)
+/// 物理メモリオフセットを取得
+/// 
+/// ## Returns
+/// カーネルが使用する物理メモリオフセット（仮想アドレス = 物理アドレス + オフセット）
 pub fn physical_memory_offset() -> Option<u64> {
     *PHYS_OFFSET.lock()
 }
 
-/// Map a range of virtual addresses [vaddr, vaddr+memsz) by allocating frames and mapping them
-/// Then copy file-backed bytes from `src` (which corresponds to the start of the segment) into memory.
+/// 指定した仮想アドレス範囲にセグメントをマップしてコピーする
+///
+/// データはカーネルの恒等マッピング（phys = virt）経由で物理フレームに直接書き込む。
+/// 
+/// ## Arguments
+/// - `vaddr`: セグメントの開始仮想アドレス
+/// - `filesz`: セグメントのファイルサイズ（ELFヘッダのp_filesz）
+/// - `memsz`: セグメントのメモリサイズ（ELFヘッダのp_memsz）
+/// - `src`: セグメントのデータが格納されたバッファ
+/// - `writable`: セグメントをRWXのどれでマップするか
+/// - `executable`: セグメントをRWXのどれでマップするか
+/// 
+/// ## Returns
+/// 成功した場合は `Ok(())`、失敗した場合はエラー
 pub fn map_and_copy_segment(
     vaddr: u64,
     filesz: u64,
@@ -307,7 +345,6 @@ pub fn map_and_copy_segment(
         }
 
         let page_start = page_addr;
-        // ... (copy and zero logic) ...
         let page_end = page_addr + 4096;
         let file_region_start = vaddr;
         let file_region_end = vaddr + filesz;
@@ -385,3 +422,196 @@ pub fn map_and_copy_segment(
 }
 
 pub use x86_64::PhysAddr;
+
+/// ユーザープロセス用の新しいL4ページテーブルを作成する
+///
+/// カーネルのページテーブル階層を部分的にコピーして、カーネルメモリには
+/// アクセス可能だがユーザー空間は空（プロセス固有）の新しいページテーブルを作成する。
+///
+/// アドレス空間レイアウト（phys_off=0, identity mapping）:
+///   - 0x200000 (L4[0]→L3[0]→L2[1]) : ユーザーコード（プロセス固有）
+///   - 0x179d... (L4[0]→L3[0]→L2[188-189]): カーネルスタック（共有）
+///   - 0x139... (L4[0]→L3[0]→L2[458]): カーネルコード（共有）
+///   - 0x7FFF_FFF0_0000 (L4[255]): ユーザースタック（プロセス固有）
+///
+/// ## Returns
+/// 新しいL4テーブルの物理アドレス
+pub fn create_user_page_table() -> Option<u64> {
+    let phys_off = physical_memory_offset()?;
+
+    // カーネルの「元の」L4テーブルを使用する（syscall中はCR3がユーザープロセスのテーブルなため）
+    let kernel_l4_phys = KERNEL_L4_PHYS.load(core::sync::atomic::Ordering::Relaxed);
+    if kernel_l4_phys == 0 { return None; }
+    let kernel_l4 = unsafe { &*((kernel_l4_phys + phys_off) as *const PageTable) };
+
+    // 新しいL4フレームを確保してゼロ初期化
+    let new_l4_frame = frame::allocate_frame().ok()?;
+    let new_l4_phys = new_l4_frame.start_address().as_u64();
+    let new_l4 = unsafe { &mut *((new_l4_phys + phys_off) as *mut PageTable) };
+    new_l4.zero();
+
+    // L4[0]: カーネルコード/スタックとユーザーコードが共存するエントリ
+    if !kernel_l4[0].is_unused() {
+        let kernel_l3_phys = kernel_l4[0].addr().as_u64();
+        let kernel_l3 = unsafe { &*((kernel_l3_phys + phys_off) as *const PageTable) };
+
+        let new_l3_frame = frame::allocate_frame().ok()?;
+        let new_l3_phys = new_l3_frame.start_address().as_u64();
+        let new_l3 = unsafe { &mut *((new_l3_phys + phys_off) as *mut PageTable) };
+        new_l3.zero();
+
+        // L3[0]: 最初の1GB（カーネルコード・スタックとユーザーコードが混在）
+        if !kernel_l3[0].is_unused() {
+            let kernel_l2_phys = kernel_l3[0].addr().as_u64();
+            let kernel_l2 = unsafe { &*((kernel_l2_phys + phys_off) as *const PageTable) };
+
+            let new_l2_frame = frame::allocate_frame().ok()?;
+            let new_l2_phys = new_l2_frame.start_address().as_u64();
+            let new_l2 = unsafe { &mut *((new_l2_phys + phys_off) as *mut PageTable) };
+            new_l2.zero();
+
+            // カーネルのL2をすべてコピー（L2[0] = 0-2MB の恒等マップも含む）
+            // これによりsyscall中にカーネルが低アドレス物理フレームにアクセスできる
+            for i in 0..512 {
+                new_l2[i] = kernel_l2[i].clone();
+            }
+            // L2[1] = 0x200000-0x3FFFFF はユーザーコード専用にクリア（exec時に再マップ）
+            new_l2[1].set_unused();
+
+            new_l3[0].set_addr(
+                x86_64::PhysAddr::new(new_l2_phys),
+                kernel_l3[0].flags(),
+            );
+        }
+
+        // L3[1..512]: 1GB以上のカーネルメモリをそのままコピー
+        for i in 1..512 {
+            new_l3[i] = kernel_l3[i].clone();
+        }
+
+        new_l4[0].set_addr(
+            x86_64::PhysAddr::new(new_l3_phys),
+            kernel_l4[0].flags(),
+        );
+    }
+
+    // L4[1..255]: その他の物理メモリ領域をカーネルからコピー
+    for i in 1..255 {
+        new_l4[i] = kernel_l4[i].clone();
+    }
+    // L4[255]: ユーザースタック領域（プロセス固有 - 空のままにする）
+    // L4[256..512]: カーネル上位半分をカーネルからコピー
+    for i in 256..512 {
+        new_l4[i] = kernel_l4[i].clone();
+    }
+
+    Some(new_l4_phys)
+}
+
+/// 指定したページテーブル（物理アドレス）にセグメントをマップしてコピーする
+///
+/// データはカーネルの恒等マッピング（phys = virt）経由で物理フレームに直接書き込む。
+/// フラッシュはカレントCR3に対しては不要なため `.ignore()` を使う。
+/// 
+/// ## Arguments
+/// - `table_phys`: マップ先のページテーブルの物理アドレス
+/// - `vaddr`: セグメントの開始仮想アドレス
+/// - `filesz`: セグメントのファイルサイズ（ELFヘッダのp_filesz）
+/// - `memsz`: セグメントのメモリサイズ（ELFヘッダのp_memsz）
+/// - `src`: セグメントのデータが格納されたバッファ
+/// - `writable`: セグメントをRWXのどれでマップするか
+/// - `executable`: セグメントをRWXのどれでマップするか
+/// 
+/// ## Returns
+/// 成功した場合は `Ok(())`、失敗した場合はエラー
+pub fn map_and_copy_segment_to(
+    table_phys: u64,
+    vaddr: u64,
+    filesz: u64,
+    memsz: u64,
+    src: &[u8],
+    writable: bool,
+    executable: bool,
+) -> Result<()> {
+    use crate::result::{Kernel, Memory};
+    use x86_64::structures::paging::PageTableFlags as Flags;
+
+    let phys_off = physical_memory_offset().ok_or(Kernel::Memory(Memory::NotMapped))?;
+    let l4 = unsafe { &mut *((table_phys + phys_off) as *mut PageTable) };
+    let mut pt = unsafe { OffsetPageTable::new(l4, VirtAddr::new(phys_off)) };
+
+    let mut final_flags = Flags::PRESENT | Flags::USER_ACCESSIBLE;
+    if writable { final_flags |= Flags::WRITABLE; }
+    if !executable { final_flags |= Flags::NO_EXECUTE; }
+
+    let start = vaddr & !0xfffu64;
+    let end = (vaddr + memsz + 0xfff) & !0xfffu64;
+
+    let mut page_addr = start;
+    while page_addr < end {
+        let page = Page::<Size4KiB>::containing_address(VirtAddr::new(page_addr));
+
+        let frame = {
+            let mut alloc = frame::FRAME_ALLOCATOR.lock();
+            alloc.as_mut().ok_or(Kernel::Memory(Memory::OutOfMemory))?.allocate_frame()
+                .ok_or(Kernel::Memory(Memory::OutOfMemory))?
+        };
+        let phys_frame_addr = frame.start_address().as_u64();
+
+        // フレームを先にゼロ初期化（BSS領域のため）
+        unsafe { core::ptr::write_bytes((phys_frame_addr + phys_off) as *mut u8, 0, 4096); }
+
+        // マップ（既にマップ済みの場合はアンマップして再マップ）
+        unsafe {
+            let mut alloc = frame::FRAME_ALLOCATOR.lock();
+            match pt.map_to(page, frame, final_flags, alloc.as_mut().unwrap()) {
+                Ok(flush) => { flush.ignore(); }
+                Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(_)) => {
+                    // カーネルのアイデンティティマップが残っている場合：アンマップして再マップ
+                    drop(alloc);
+                    pt.unmap(page).map_err(|_| Kernel::Memory(Memory::InvalidAddress))?.1.ignore();
+                    let mut alloc = frame::FRAME_ALLOCATOR.lock();
+                    pt.map_to(page, frame, final_flags, alloc.as_mut().unwrap())
+                        .map_err(|_| Kernel::Memory(Memory::InvalidAddress))?
+                        .ignore();
+                }
+                Err(_) => return Err(Kernel::Memory(Memory::InvalidAddress)),
+            }
+        }
+
+        // ELFデータを物理フレームに直接書き込む（phys_off=0のためphys=virtで直接アクセス可能）
+        let page_start = page_addr;
+        let page_end = page_addr + 4096;
+        let copy_start = core::cmp::max(page_start, vaddr);
+        let copy_end = core::cmp::min(page_end, vaddr + filesz);
+        if copy_start < copy_end {
+            let src_off = (copy_start - vaddr) as usize;
+            let dst_off = (copy_start - page_start) as usize;
+            let len = (copy_end - copy_start) as usize;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    src.as_ptr().add(src_off),
+                    (phys_frame_addr + phys_off + dst_off as u64) as *mut u8,
+                    len,
+                );
+            }
+        }
+
+        page_addr += 4096;
+    }
+    Ok(())
+}
+
+/// CR3を指定した物理アドレスのページテーブルに切り替える
+/// 
+/// ## Arguments
+/// - `table_phys`: 切り替えるページテーブルの物理アドレス
+/// 
+/// ## Safety
+/// - `table_phys`が有効なページテーブルの物理アドレスであることを呼び出し元が保証する必要がある
+pub fn switch_page_table(table_phys: u64) {
+    unsafe {
+        let frame = PhysFrame::<Size4KiB>::containing_address(x86_64::PhysAddr::new(table_phys));
+        Cr3::write(frame, Cr3Flags::empty());
+    }
+}

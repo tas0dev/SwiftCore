@@ -20,21 +20,29 @@ impl Pic {
     }
 }
 
+/// マスタPICとスレーブPICの定義
 pub const PIC_MASTER: Pic = Pic {
+    /// 割込みベクタオフセット
     offset: 32,
+    /// コマンドポート
     command: 0x20,
+    /// データポート
     data: 0x21,
 };
 
+/// スレーブPIC
 pub const PIC_SLAVE: Pic = Pic {
+    /// 割込みベクタオフセット
     offset: 40,
+    /// コマンドポート
     command: 0xa0,
+    /// データポート
     data: 0xa1,
 };
 
 /// PICを初期化
 pub fn init() {
-    debug!("Initializing PIC (8259A)...");
+    debug!("Initializing PIC...");
 
     unsafe {
         use x86_64::instructions::port::Port;

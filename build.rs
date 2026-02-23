@@ -80,9 +80,10 @@ fn main() {
         }
     }
 
-    // アプリケーションをビルド（全てfsへ）
+    // アプリケーションをビルド
     let apps_dir = manifest_dir.join("src/apps");
     if apps_dir.is_dir() {
+        println!("Building test applications");
         build_apps(&apps_dir, &fs_dir, "elf");
     }
 
@@ -107,6 +108,7 @@ fn main() {
     println!("  fs/    -> {}", ext2_image_path.display());
 }
 
+/*
 fn find_service_bin(manifest_dir: &Path, name: &str) -> Option<PathBuf> {
     let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
     let profile_dir = if profile == "release" { "release" } else { "debug" };

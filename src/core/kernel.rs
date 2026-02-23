@@ -17,7 +17,7 @@ fn kernel_main() -> ! {
     util::log::set_level(LogLevel::Info);
     debug!("Kernel started");
 
-    // core.service のみを起動（他のサービスはcore.serviceが管理）
+    // core.serviceのみ起動（他のサービスはcore.serviceが管理）
     info!("Starting core.service");
     exec_kernel_with_name("core.service", "core.service");
 

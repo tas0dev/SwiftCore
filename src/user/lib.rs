@@ -4,6 +4,8 @@ extern crate alloc;
 
 use alloc::alloc::{GlobalAlloc, Layout};
 
+/// C関数ラッパーとポートI/O
+pub mod cfunc;
 /// システムコールの共通インターフェース
 pub mod sys;
 /// CランタイムとNewlibサポート
@@ -18,21 +20,26 @@ pub mod time;
 pub mod io;
 /// プロセス管理関連のシステムコール
 pub mod process;
-pub mod cfunc;
+/// ファイルシステム関連のシステムコール
+pub mod fs;
+/// ポートI/O関連のシステムコール
+pub mod port;
+/// libcのC関数
+pub mod libc;
+/// Linux/POSIX 互換スタブ (std リンク用)
+pub mod posix_stubs;
 
 use core::panic::PanicInfo;
-use cfunc::*;
+use crate::libc::*;
+use crate::sys::SyscallNumber;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    // TODO: 今後改修する
     unsafe {
-       // 強制終了
-       let sys_exit = 6;
        core::arch::asm!(
            "int 0x80",
-           in("rax") sys_exit,
-           in("rdi") 1,
+           in("rax") SyscallNumber::ExitGroup as u64,
+           in("rdi") 1u64,
            options(nostack, noreturn)
        )
     }
@@ -42,26 +49,15 @@ struct NewlibAllocator;
 
 unsafe impl GlobalAlloc for NewlibAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        memalign(layout.align(), layout.size())
+        libc::memalign(layout.align(), layout.size())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        free(ptr);
+        libc::free(ptr);
     }
 
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-         if layout.align() > 8 {
-             let new_ptr = memalign(layout.align(), new_size);
-             if !new_ptr.is_null() && !ptr.is_null() {
-                 let old_size = layout.size();
-                 let copy_size = if old_size < new_size { old_size } else { new_size };
-                 core::ptr::copy_nonoverlapping(ptr, new_ptr, copy_size);
-                 free(ptr);
-             }
-             new_ptr
-         } else {
-             realloc(ptr, new_size)
-         }
+    unsafe fn realloc(&self, ptr: *mut u8, _layout: Layout, new_size: usize) -> *mut u8 {
+        libc::realloc(ptr, new_size)
     }
 }
 

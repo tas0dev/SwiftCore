@@ -10,8 +10,11 @@ use linked_list_allocator::LockedHeap;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::alloc::{GlobalAlloc, Layout};
 
+/// ブートローダーとカーネルの両方で使用するグローバルアロケータ
 struct BootAllocator {
+    /// カーネルがロックして使用するヒープ
     kernel: LockedHeap,
+    /// カーネルのヒープを使用するかどうか
     use_kernel: AtomicBool,
 }
 
@@ -23,6 +26,7 @@ unsafe impl GlobalAlloc for BootAllocator {
              uefi::allocator::Allocator.alloc(layout)
         }
     }
+    
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if self.use_kernel.load(Ordering::Relaxed) {
              self.kernel.dealloc(ptr, layout)
@@ -69,9 +73,12 @@ unsafe fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> St
     let _ = system_table.stdout().clear();
     let _ = system_table
         .stdout()
-        .output_string(cstr16!("SwiftCore starting...\n"));
-
-    // Graphics Output Protocolを取得してフレームバッファ情報を保存
+        .output_string(cstr16!("sBoot start.\n"));
+    
+    // フレームバッファの情報を取得
+    let _ = system_table
+        .stdout()
+        .output_string(cstr16!("Getting framebuffer info...\n"));
     let (fb_addr, fb_size, screen_w, screen_h, stride) = {
         let gop_handle = match system_table
             .boot_services()
@@ -100,8 +107,17 @@ unsafe fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> St
             mode_info.stride(),
         )
     };
-
+    let _ = system_table
+        .stdout()
+        .output_string(cstr16!("Framebuffer info obtained.\n"));
+    
     // Boot Servicesを終了してメモリマップを取得
+    let _ = system_table
+        .stdout()
+        .output_string(cstr16!("Getting memory map...\n"));
+    let _ = system_table
+        .stdout()
+        .output_string(cstr16!("Exiting boot services...\n"));
     let (_system_table, memory_map_iter) =
         unsafe { system_table.exit_boot_services(uefi::table::boot::MemoryType::LOADER_DATA) };
 
