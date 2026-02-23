@@ -10,6 +10,10 @@ pub mod paging;
 pub mod tss;
 pub mod allocator;
 
+/// メモリの初期化
+/// 
+/// ## Arguments
+/// - `boot_info`: ブートローダから渡される情報構造体
 pub fn init(boot_info: &'static crate::BootInfo) {
     info!("Initializing memory...");
 
@@ -40,6 +44,12 @@ pub fn init(boot_info: &'static crate::BootInfo) {
 }
 
 /// メモリマップを設定してフレームアロケータを初期化
+/// 
+/// ## Arguments
+/// - `memory_map`: ブートローダから渡されるメモリマップ
+/// 
+/// ## Returns
+/// - `Result<()>`: 成功すればOk、失敗すればErr
 pub fn init_frame_allocator(memory_map: &'static [MemoryRegion]) -> Result<()> {
     frame::init(memory_map);
 
