@@ -16,14 +16,18 @@ use crate::mem::frame;
 use uefi::table::boot::MemoryType as UefiMemoryType;
 use x86_64::registers::control::{Cr3, Cr3Flags};
 
-
+/// アクティブなページテーブルへのグローバル参照と物理メモリオフセット
 pub static PAGE_TABLE: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
+/// 物理メモリオフセット（init時に設定） - 仮想アドレス = 物理アドレス + オフセット
 pub static PHYS_OFFSET: Mutex<Option<u64>> = Mutex::new(None);
 /// カーネルの元のL4ページテーブルの物理アドレス（init時に設定）
 pub static KERNEL_L4_PHYS: core::sync::atomic::AtomicU64 =
     core::sync::atomic::AtomicU64::new(0);
 
 /// ページングシステムを初期化
+/// 
+/// ## Arguments
+/// - `boot_info`: ブートローダーから提供される情報（メモリマップ、物理メモリオフセットなど）
 pub fn init(boot_info: &'static crate::BootInfo) {
     info!("Initializing paging...");
 
@@ -175,8 +179,13 @@ pub fn init(boot_info: &'static crate::BootInfo) {
     );
 }
 
-/// 現在設定されている物理メモリオフセットを返す
 /// アクティブなレベル4ページテーブルへの参照を取得
+/// 
+/// ## Arguments
+/// - `physical_memory_offset`: カーネルが使用する物理メモリオフセット（仮想アドレス = 物理アドレス + オフセット）
+/// 
+/// ## Returns
+/// アクティブなレベル4ページテーブルへのミュータブル参照
 unsafe fn active_level_4_table(physical_memory_offset: u64) -> &'static mut PageTable {
     use x86_64::registers::control::Cr3;
 
@@ -189,6 +198,14 @@ unsafe fn active_level_4_table(physical_memory_offset: u64) -> &'static mut Page
 }
 
 /// ページをマップ
+/// 
+/// ## Arguments
+/// - `page`: マップする仮想ページ
+/// - `frame`: マップ先の物理フレーム
+/// - `flags`: ページテーブルエントリのフラグ（例: PRESENT, WRITABLE, USER_ACCESSIBLEなど）
+/// 
+/// ## Returns
+/// 成功した場合は `Ok(())`、失敗した場合はエラーを返す
 pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<()> {
     let mut page_table_lock = PAGE_TABLE.lock();
     let page_table = page_table_lock
@@ -221,6 +238,12 @@ pub fn map_page(page: Page, frame: PhysFrame, flags: PageTableFlags) -> Result<(
 }
 
 /// 仮想アドレスを物理アドレスに変換
+/// 
+/// ## Arguments
+/// - `addr`: 変換する仮想アドレス
+/// 
+/// ## Returns
+/// 変換された物理アドレス、または変換できない場合は `None`
 pub fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
     use x86_64::structures::paging::mapper::Translate;
 
@@ -228,13 +251,28 @@ pub fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
     page_table.as_ref()?.translate_addr(addr)
 }
 
-/// Get the physical memory offset used by the kernel (virtual = phys + offset)
+/// 物理メモリオフセットを取得
+/// 
+/// ## Returns
+/// カーネルが使用する物理メモリオフセット（仮想アドレス = 物理アドレス + オフセット）
 pub fn physical_memory_offset() -> Option<u64> {
     *PHYS_OFFSET.lock()
 }
 
-/// Map a range of virtual addresses [vaddr, vaddr+memsz) by allocating frames and mapping them
-/// Then copy file-backed bytes from `src` (which corresponds to the start of the segment) into memory.
+/// 指定した仮想アドレス範囲にセグメントをマップしてコピーする
+///
+/// データはカーネルの恒等マッピング（phys = virt）経由で物理フレームに直接書き込む。
+/// 
+/// ## Arguments
+/// - `vaddr`: セグメントの開始仮想アドレス
+/// - `filesz`: セグメントのファイルサイズ（ELFヘッダのp_filesz）
+/// - `memsz`: セグメントのメモリサイズ（ELFヘッダのp_memsz）
+/// - `src`: セグメントのデータが格納されたバッファ
+/// - `writable`: セグメントをRWXのどれでマップするか
+/// - `executable`: セグメントをRWXのどれでマップするか
+/// 
+/// ## Returns
+/// 成功した場合は `Ok(())`、失敗した場合はエラー
 pub fn map_and_copy_segment(
     vaddr: u64,
     filesz: u64,
@@ -307,7 +345,6 @@ pub fn map_and_copy_segment(
         }
 
         let page_start = page_addr;
-        // ... (copy and zero logic) ...
         let page_end = page_addr + 4096;
         let file_region_start = vaddr;
         let file_region_end = vaddr + filesz;
@@ -397,7 +434,8 @@ pub use x86_64::PhysAddr;
 ///   - 0x139... (L4[0]→L3[0]→L2[458]): カーネルコード（共有）
 ///   - 0x7FFF_FFF0_0000 (L4[255]): ユーザースタック（プロセス固有）
 ///
-/// 戻り値は新しいL4テーブルの物理アドレス。
+/// ## Returns
+/// 新しいL4テーブルの物理アドレス
 pub fn create_user_page_table() -> Option<u64> {
     let phys_off = physical_memory_offset()?;
 
@@ -474,6 +512,18 @@ pub fn create_user_page_table() -> Option<u64> {
 ///
 /// データはカーネルの恒等マッピング（phys = virt）経由で物理フレームに直接書き込む。
 /// フラッシュはカレントCR3に対しては不要なため `.ignore()` を使う。
+/// 
+/// ## Arguments
+/// - `table_phys`: マップ先のページテーブルの物理アドレス
+/// - `vaddr`: セグメントの開始仮想アドレス
+/// - `filesz`: セグメントのファイルサイズ（ELFヘッダのp_filesz）
+/// - `memsz`: セグメントのメモリサイズ（ELFヘッダのp_memsz）
+/// - `src`: セグメントのデータが格納されたバッファ
+/// - `writable`: セグメントをRWXのどれでマップするか
+/// - `executable`: セグメントをRWXのどれでマップするか
+/// 
+/// ## Returns
+/// 成功した場合は `Ok(())`、失敗した場合はエラー
 pub fn map_and_copy_segment_to(
     table_phys: u64,
     vaddr: u64,
@@ -553,6 +603,12 @@ pub fn map_and_copy_segment_to(
 }
 
 /// CR3を指定した物理アドレスのページテーブルに切り替える
+/// 
+/// ## Arguments
+/// - `table_phys`: 切り替えるページテーブルの物理アドレス
+/// 
+/// ## Safety
+/// - `table_phys`が有効なページテーブルの物理アドレスであることを呼び出し元が保証する必要がある
 pub fn switch_page_table(table_phys: u64) {
     unsafe {
         let frame = PhysFrame::<Size4KiB>::containing_address(x86_64::PhysAddr::new(table_phys));
