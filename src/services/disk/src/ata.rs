@@ -5,7 +5,7 @@
 
 use core::fmt;
 use core::sync::atomic::{AtomicBool, Ordering};
-use swiftlib::cfunc::{inb, outb, inw, outw};
+use swiftlib::libc::{inb, outb, inw, outw};
 
 /// ATAポート
 #[derive(Debug, Clone, Copy)]
