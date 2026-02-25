@@ -49,8 +49,7 @@ exec qemu-system-x86_64 \
     -drive id=disk0,file=target/swiftCore.img,format=raw,if=ide,index=1,media=disk \
     -net none \
     -m 512M \
-    -serial stdio \
-    -vga std \
     -no-reboot \
     -d int,guest_errors \
-    -D qemu.log
+    -D qemu.log \
+    -nographic
