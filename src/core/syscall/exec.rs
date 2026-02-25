@@ -2,6 +2,7 @@ use crate::elf::loader as elf_loader;
 use alloc::vec::Vec;
 use alloc::vec;
 use alloc::string::String;
+use core::convert::TryInto;
 
 /// カーネル内から実行可能ファイルを読み込み実行するシステムコール
 pub fn exec_kernel(path_ptr: u64) -> u64 {
@@ -39,7 +40,7 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
 
     if let Some(data) = crate::init::fs::read(path) {
         let data: &[u8] = &data;
-        let entry = elf_loader::entry_point(data).unwrap_or(0);
+        let mut entry = elf_loader::entry_point(data).unwrap_or(0);
         crate::debug!("ELF entry: {:#x}", entry);
 
         // プロセス固有のページテーブルを作成
@@ -74,6 +75,68 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                         if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, vaddr, filesz, memsz, seg_src, writable, executable) {
                             crate::warn!("Failed to map segment: {:?}", e);
                             return crate::syscall::types::EINVAL;
+                        }
+                    }
+                }
+            }
+        }
+
+        
+        let mut sinit_addr: Option<u64> = None;
+        if let Some(eh_sym) = elf_loader::parse_elf_header(data) {
+            let shoff = eh_sym.e_shoff as usize;
+            let shentsz = eh_sym.e_shentsize as usize;
+            let shnum = eh_sym.e_shnum as usize;
+            if shoff > 0 && shentsz > 0 && shnum > 0 && data.len() >= shoff + shentsz * shnum {
+                let mut symtab_offset: usize = 0;
+                let mut symtab_size: usize = 0;
+                let mut symtab_entsize: usize = 0;
+                let mut strtab_offset: usize = 0;
+                let mut strtab_size: usize = 0;
+                for si in 0..shnum {
+                    let sh_off = shoff + si * shentsz;
+                    if sh_off + shentsz > data.len() { break; }
+                    let sh_type = u32::from_le_bytes(data[sh_off + 4..sh_off + 8].try_into().unwrap());
+                    let sh_offset = u64::from_le_bytes(data[sh_off + 24..sh_off + 32].try_into().unwrap()) as usize;
+                    let sh_size = u64::from_le_bytes(data[sh_off + 32..sh_off + 40].try_into().unwrap()) as usize;
+                    let sh_link = u32::from_le_bytes(data[sh_off + 40..sh_off + 44].try_into().unwrap());
+                    let sh_entsize = u64::from_le_bytes(data[sh_off + 56..sh_off + 64].try_into().unwrap()) as usize;
+                    // SHT_SYMTAB == 2
+                    if sh_type == 2 {
+                        symtab_offset = sh_offset;
+                        symtab_size = sh_size;
+                        symtab_entsize = sh_entsize;
+                        // linked string table
+                        let link_idx = sh_link as usize;
+                        if link_idx < shnum {
+                            let link_sh_off = shoff + link_idx * shentsz;
+                            strtab_offset = u64::from_le_bytes(data[link_sh_off + 24..link_sh_off + 32].try_into().unwrap()) as usize;
+                            strtab_size = u64::from_le_bytes(data[link_sh_off + 32..link_sh_off + 40].try_into().unwrap()) as usize;
+                        }
+                        break;
+                    }
+                }
+                if symtab_offset > 0 && strtab_offset > 0 && symtab_entsize > 0 {
+                    let nsyms = symtab_size / symtab_entsize;
+                    for i_sym in 0..nsyms {
+                        let sym_off = symtab_offset + i_sym * symtab_entsize;
+                        if sym_off + symtab_entsize > data.len() { break; }
+                        let st_name = u32::from_le_bytes(data[sym_off..sym_off+4].try_into().unwrap()) as usize;
+                        let st_value = u64::from_le_bytes(data[sym_off+8..sym_off+16].try_into().unwrap());
+                        if st_name < strtab_size {
+                            let name_off = strtab_offset + st_name;
+                            if name_off < data.len() {
+                                let mut end = name_off;
+                                while end < data.len() && data[end] != 0 { end += 1; }
+                                if end <= data.len() {
+                                    if let Ok(name_str) = core::str::from_utf8(&data[name_off..end]) {
+                                        if name_str == "__sinit" {
+                                            sinit_addr = Some(st_value);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -120,13 +183,13 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         let string_area_base = stack_end_vaddr - string_area_len as u64;
         let initial_rsp = stack_end_vaddr - total_size as u64;
 
-        // Construct the top page content
+        // スタックのトップページにバッファを配置
         let mut page_data = Vec::new();
         let page_offset = total_size % 4096;
         let unused_space = 4096 - page_offset;
 
-        // Fill unused space at the beginning of the page
-        // (Note: if total_size > 4096, this logic needs adjustment, but args are small for now)
+        // 使用する引数と環境変数のサイズを確認
+        // 4096バイトのページに収まらない場合はエラー
         if total_size > 4096 {
             crate::warn!("Arguments too large for single page stack setup");
             return crate::syscall::types::EINVAL;
@@ -162,7 +225,7 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         // Push Strings
         page_data.extend_from_slice(&string_block);
 
-        // Verify size
+        // サイズを確認
         assert_eq!(page_data.len(), 4096);
 
         crate::debug!("Allocating user stack: base={:#x}, top={:#x}, size={} pages, rsp={:#x}",
@@ -192,7 +255,32 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
             crate::info!("Pre-mapped {} bytes for heap at {:#x} for {}", heap_map_size, default_heap_base, process_name);
         }
 
-        // Create a process and a usermode thread
+        // __sinitがあれば、スタブを作成して先に呼び出す
+        if let Some(sinit) = sinit_addr {
+            let stub_addr: u64 = default_heap_base + heap_map_size;
+            crate::info!("Found __sinit at {:#x}, mapping init stub at {:#x}", sinit, stub_addr);
+            let mut stub_page = vec![0u8; 4096];
+            let mut cur = 0usize;
+            // movabs rax, <sinit>
+            stub_page[cur..cur+2].copy_from_slice(&[0x48, 0xB8]); cur += 2;
+            stub_page[cur..cur+8].copy_from_slice(&sinit.to_le_bytes()); cur += 8;
+            // call rax
+            stub_page[cur..cur+2].copy_from_slice(&[0xFF, 0xD0]); cur += 2;
+            // movabs rax, <entry>
+            stub_page[cur..cur+2].copy_from_slice(&[0x48, 0xB8]); cur += 2;
+            stub_page[cur..cur+8].copy_from_slice(&entry.to_le_bytes()); cur += 8;
+            // jmp rax
+            stub_page[cur..cur+2].copy_from_slice(&[0xFF, 0xE0]); cur += 2;
+
+            if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, stub_addr, cur as u64, 4096, &stub_page[0..cur], false, true) {
+                crate::warn!("Failed to map __sinit stub at {:#x}: {:?}", stub_addr, e);
+            } else {
+                // jump to stub first
+                entry = stub_addr;
+            }
+        }
+
+        // プロセスを作成してページテーブルをセット
         let mut proc = crate::task::Process::new(process_name, crate::task::PrivilegeLevel::User, None, 0);
         proc.set_page_table(new_pt_phys);
         let pid = proc.id();
