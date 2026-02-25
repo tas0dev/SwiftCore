@@ -3,7 +3,7 @@
 
 extern crate alloc;
 use core::ffi::c_char;
-use swiftlib::cfunc::*;
+use swiftlib::libc::*;
 use swiftlib::fs;
 
 // テスト結果の統計
