@@ -182,6 +182,16 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
 
         crate::debug!("User stack allocated successfully");
 
+        // Pre-map initial heap pages to avoid immediate page faults from user allocations.
+        // Map two pages at the default heap base so small early allocations won't fault.
+        let default_heap_base: u64 = 0x4000_0000;
+        let heap_map_size: u64 = 4096 * 2;
+        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, default_heap_base, 0, heap_map_size, &[], true, false) {
+            crate::warn!("Failed to pre-map initial heap pages at {:#x}: {:?}", default_heap_base, e);
+        } else {
+            crate::info!("Pre-mapped {} bytes for heap at {:#x} for {}", heap_map_size, default_heap_base, process_name);
+        }
+
         // Create a process and a usermode thread
         let mut proc = crate::task::Process::new(process_name, crate::task::PrivilegeLevel::User, None, 0);
         proc.set_page_table(new_pt_phys);

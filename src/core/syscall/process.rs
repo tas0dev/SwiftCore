@@ -92,7 +92,9 @@ pub fn brk(addr: u64) -> u64 {
         };
 
         // 拡大時にページをプロセスのページテーブルにマップ（書き込み可能、実行不可）
-        let start_page = (current_brk + 4095) & !4095;
+        // 現在の brk がページ境界でない場合に、既に存在するページを含めてマップするために
+        // floor(current_brk) を使用する。
+        let start_page = current_brk & !4095;
         let end_page = (addr + 4095) & !4095;
 
         if end_page > start_page {
