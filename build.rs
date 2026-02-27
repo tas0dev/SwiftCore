@@ -56,10 +56,10 @@ fn main() {
     build_user_libs(&user_src_dir, &libc_dir);
 
     // newlibライブラリをramfsとfsにコピー
-    copy_newlib_libs(&libc_dir, &ramfs_dir).expect("Failed to copy newlib libs to ramfs");
-    copy_newlib_libs(&libc_dir, &fs_dir).expect("Failed to copy newlib libs to fs");
+    copy_newlib_libs(&libc_dir, &ramfs_dir).expect("cargo:warning=Failed to copy newlib libs to ramfs");
+    copy_newlib_libs(&libc_dir, &fs_dir).expect("cargo:warning=Failed to copy newlib libs to fs");
 
-    // Try to locate host libgcc_s (libgcc_s.so.1) and copy it into ramfs so linker can find -lgcc_s.
+    // libgcc_sをramfsにコピー
     if let Ok(out) = std::process::Command::new("gcc")
         .arg("-print-file-name=libgcc_s.so.1")
         .output()
@@ -75,7 +75,7 @@ fn main() {
                     let link = ramfs_dir.join("libgcc_s.so");
                     if !link.exists() { let _ = symlink("libgcc_s.so.1", &link); }
                 }
-                println!("cargo:warning=Copied libgcc_s to ramfs: {}", path);
+                println!("Copied libgcc_s to ramfs: {}", path);
             } else {
                 let candidates = [
                     "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
@@ -91,16 +91,16 @@ fn main() {
                             let link = ramfs_dir.join("libgcc_s.so");
                             if !link.exists() { let _ = symlink("libgcc_s.so.1", &link); }
                         }
-                        println!("cargo:warning=Copied libgcc_s to ramfs from {}", c);
+                        println!("Copied libgcc_s to ramfs from {}", c);
                         break;
                     }
                 }
             }
         } else {
-            println!("cargo:warning=gcc returned non-zero when locating libgcc_s");
+            println!("gcc returned non-zero when locating libgcc_s");
         }
     } else {
-        println!("cargo:warning=Failed to run gcc to locate libgcc_s");
+        println!("Failed to run gcc to locate libgcc_s");
     }
 
     // services/index.toml を解析
