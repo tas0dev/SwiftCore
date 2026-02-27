@@ -59,6 +59,50 @@ fn main() {
     copy_newlib_libs(&libc_dir, &ramfs_dir).expect("Failed to copy newlib libs to ramfs");
     copy_newlib_libs(&libc_dir, &fs_dir).expect("Failed to copy newlib libs to fs");
 
+    // Try to locate host libgcc_s (libgcc_s.so.1) and copy it into ramfs so linker can find -lgcc_s.
+    if let Ok(out) = std::process::Command::new("gcc")
+        .arg("-print-file-name=libgcc_s.so.1")
+        .output()
+    {
+        if out.status.success() {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            use std::path::Path;
+            if path != "libgcc_s.so.1" && Path::new(&path).exists() {
+                let dest = ramfs_dir.join("libgcc_s.so.1");
+                let _ = std::fs::copy(&path, &dest);
+                #[cfg(unix)] {
+                    use std::os::unix::fs::symlink;
+                    let link = ramfs_dir.join("libgcc_s.so");
+                    if !link.exists() { let _ = symlink("libgcc_s.so.1", &link); }
+                }
+                println!("cargo:warning=Copied libgcc_s to ramfs: {}", path);
+            } else {
+                let candidates = [
+                    "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+                    "/lib/x86_64-linux-gnu/libgcc_s.so.1",
+                    "/usr/lib64/libgcc_s.so.1",
+                    "/lib64/libgcc_s.so.1",
+                ];
+                for c in &candidates {
+                    if Path::new(c).exists() {
+                        let _ = std::fs::copy(c, ramfs_dir.join("libgcc_s.so.1"));
+                        #[cfg(unix)] {
+                            use std::os::unix::fs::symlink;
+                            let link = ramfs_dir.join("libgcc_s.so");
+                            if !link.exists() { let _ = symlink("libgcc_s.so.1", &link); }
+                        }
+                        println!("cargo:warning=Copied libgcc_s to ramfs from {}", c);
+                        break;
+                    }
+                }
+            }
+        } else {
+            println!("cargo:warning=gcc returned non-zero when locating libgcc_s");
+        }
+    } else {
+        println!("cargo:warning=Failed to run gcc to locate libgcc_s");
+    }
+
     // services/index.toml を解析
     let index_path = manifest_dir.join("src/services/index.toml");
     println!("cargo:rerun-if-changed={}", index_path.display());
