@@ -1,6 +1,6 @@
 //! プロセス管理関連のシステムコール
 
-use super::sys::{syscall0, syscall1, SyscallNumber};
+use super::sys::{syscall1, SyscallNumber};
 
 /// 実行可能ファイルを起動する
 /// パスから新しいプロセスを起動し、そのPIDを返す

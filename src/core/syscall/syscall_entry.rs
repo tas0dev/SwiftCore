@@ -30,8 +30,10 @@ pub static SYSCALL_SAVED_USER_RFLAGS: AtomicU64 = AtomicU64::new(0);
 
 /// SYSCALL 用カーネルスタック (初回スイッチまたはスレッド切り替え前に使用)
 #[repr(align(16))]
-struct SyscallStack([u8; 4096 * 8]);
-static mut SYSCALL_KERNEL_STACK: SyscallStack = SyscallStack([0; 4096 * 8]);
+pub struct SyscallStack([u8; 4096 * 8]);
+
+/// SYSCALL 用カーネルスタックの実体
+pub static mut SYSCALL_KERNEL_STACK: SyscallStack = SyscallStack([0; 4096 * 8]);
 
 /// SYSCALL/SYSRET に必要な MSR を初期化する
 ///
@@ -109,6 +111,7 @@ pub unsafe extern "C" fn syscall_entry() {
     core::arch::naked_asm!(
         // ユーザー RSP を一時退避 (グローバル変数: シングルCPU前提)
         "mov [{temp_rsp}], rsp",
+        "swapgs",
 
         // ユーザー FS ベースを IA32_FS_BASE MSR から読み込んで一時退避
         // (RDFSBASE は FSGSBASE 未対応CPUで #UD になるため MSR を使用)
@@ -190,6 +193,7 @@ pub unsafe extern "C" fn syscall_entry() {
 
         // ユーザー RSP に切り替えて SYSRETQ
         "mov rsp, rdx",
+        "swapgs",
         "sysretq",
 
         temp_rsp   = sym SYSCALL_TEMP_USER_RSP,
