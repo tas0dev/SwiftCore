@@ -46,7 +46,6 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
     }
 
     // Initialize syscall MSRs (STAR/LSTAR/FMASK)
-    interrupt::init_syscall();
 
     interrupt::init_pit();
     // Enable scheduler and timer interrupts for preemptive multitasking during development/testing.
@@ -56,6 +55,15 @@ pub fn kinit(boot_info: &'static BootInfo) -> Result<&'static [MemoryRegion]> {
 
     // SYSCALL/SYSRET 命令サポートを初期化
     crate::syscall::syscall_entry::init_syscall();
+
+    // Set IA32_KERNEL_GS_BASE to kernel per-cpu base (placeholder: SYSCALL_KERNEL_STACK)
+    unsafe {
+        let kgs_base = core::ptr::addr_of!(crate::syscall::syscall_entry::SYSCALL_KERNEL_STACK) as u64;
+        let lo = kgs_base as u32;
+        let hi = (kgs_base >> 32) as u32;
+        core::arch::asm!("wrmsr", in("ecx") 0xC000_0102u32, in("eax") lo, in("edx") hi, options(nomem, nostack));
+        crate::info!("IA32_KERNEL_GS_BASE set to {:#x}", kgs_base);
+    }
 
     Ok(memory_map)
 }

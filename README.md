@@ -20,11 +20,12 @@ SwiftCoreはハイブリッドアーキテクチャを採用した、新しいOS
 - e2fsprogs
 - texinfo
 - build-essentialで入るすべてのツール
+- libgcc-s1
 - `x86_64-unknown-none`ターゲット
 - `x86_64-unknown-uefi`ターゲット
 
 > [!TIP]
-> x86_64-elf-gccは[homebrew](https://brew.sh/)でインストールすることを推奨します。また、brewをインストール時、`Run there commands in your terminal to add Homebrew to your PATH`と表示されたら、必ず指示に従ってください。
+> x86_64-elf-gccは[homebrew](https://brew.sh/)でインストールすることを推奨します。（aptにありません）また、brewをインストール時、`Run there commands in your terminal to add Homebrew to your PATH`と表示されたら、必ず指示に従ってください。
 
 1. このレポをクローンします。
 2. サブモジュールをインストールします。
@@ -38,6 +39,7 @@ SwiftCoreはハイブリッドアーキテクチャを採用した、新しいOS
     ```
 4. ビルドします。
     ```bash
+    cd ../..
     cargo build
     ```
 
