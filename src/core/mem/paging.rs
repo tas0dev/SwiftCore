@@ -475,8 +475,8 @@ pub fn create_user_page_table() -> Option<u64> {
             for i in 0..512 {
                 new_l2[i] = kernel_l2[i].clone();
             }
-            // L2[1] = 0x200000-0x3FFFFF はユーザーコード専用にクリア（exec時に再マップ）
-            new_l2[1].set_unused();
+            // L2[4] = 0x800000-0x9FFFFF はユーザーコード専用にクリア（exec時に再マップ）
+            new_l2[4].set_unused();
 
             new_l3[0].set_addr(
                 x86_64::PhysAddr::new(new_l2_phys),
