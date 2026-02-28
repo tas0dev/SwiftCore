@@ -19,8 +19,6 @@ pub enum Kernel {
     InvalidParam,
     /// 未実装の機能
     NotImplemented,
-    /// 未知のエラー
-    UnknownError,
 }
 
 /// メモリ関連
@@ -38,8 +36,6 @@ pub enum Memory {
     NotMapped,
     /// アライメントエラー
     AlignmentError,
-    /// 未知のエラー
-    UnknownError,
 }
 
 /// プロセス関連
@@ -65,8 +61,6 @@ pub enum Process {
     Service(Service),
     /// プロセス作成完了
     CreationOk,
-    ///　未知のエラー
-    UnknownError,
 }
 
 /// サービス関連
@@ -88,8 +82,6 @@ pub enum Service {
     Conflict,
     /// 未登録のサービス
     Unregistered,
-    /// 未知のエラー
-    UnknownError,
 }
 
 /// ELF関連
@@ -105,8 +97,6 @@ pub enum Elf {
     SymbolResolutionFailure,
     /// Elfファイルの長さ不足
     InsufficientLength,
-    /// 未知のエラー
-    UnknownError,
 }
 
 /// デバイス関連
@@ -132,8 +122,6 @@ pub enum Device {
     CommunicationLost,
     /// リソース不足
     ResourceUnavailable,
-    /// 未知のエラー
-    UnknownError,
 }
 
 impl Kernel {
@@ -174,7 +162,6 @@ impl fmt::Display for Kernel {
             Kernel::Elf(e) => write!(f, "ELF error: {:?}", e),
             Kernel::InvalidParam => write!(f, "Invalid parameter"),
             Kernel::NotImplemented => write!(f, "Not implemented"),
-            Kernel::UnknownError => write!(f, "Unknown error"),
         }
     }
 }
@@ -189,7 +176,6 @@ impl fmt::Display for Memory {
             Memory::AlreadyMapped => write!(f, "Already mapped"),
             Memory::NotMapped => write!(f, "Not mapped"),
             Memory::AlignmentError => write!(f, "Alignment error"),
-            Memory::UnknownError => write!(f, "Unknown error"),
         }
     }
 }
