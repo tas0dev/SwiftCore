@@ -166,10 +166,14 @@ impl Thread {
         extern "C" fn usermode_entry_trampoline() -> ! {
             // この関数は各スレッドが最初に実行される
             // スレッド固有のuser_entryとuser_stackを取得してジャンプする
-            let tid = current_thread_id().expect("No current thread");
-            let (entry, stack) = with_thread(tid, |thread| {
-                (thread.user_entry(), thread.user_stack())
-            }).expect("Thread not found");
+            let tid = match current_thread_id() {
+                Some(t) => t,
+                None => { crate::warn!("usermode_entry_trampoline: No current thread"); loop { x86_64::instructions::hlt(); } }
+            };
+            let (entry, stack) = match with_thread(tid, |thread| (thread.user_entry(), thread.user_stack())) {
+                Some(v) => v,
+                None => { crate::warn!("usermode_entry_trampoline: Thread not found"); loop { x86_64::instructions::hlt(); } }
+            };
 
             crate::debug!("Jumping to usermode: entry={:#x}, stack={:#x}", entry, stack);
             unsafe {
@@ -254,10 +258,14 @@ impl Thread {
         context.rbp = stack_top;
 
         extern "C" fn fork_child_trampoline() -> ! {
-            let tid = current_thread_id().expect("No current thread");
-            let (entry, stack, rflags, fs) = with_thread(tid, |thread| {
-                (thread.user_entry(), thread.user_stack(), thread.fork_user_rflags(), thread.fs_base())
-            }).expect("Thread not found");
+            let tid = match current_thread_id() {
+                Some(t) => t,
+                None => { crate::warn!("fork_child_trampoline: No current thread"); loop { x86_64::instructions::hlt(); } }
+            };
+            let (entry, stack, rflags, fs) = match with_thread(tid, |thread| (thread.user_entry(), thread.user_stack(), thread.fork_user_rflags(), thread.fs_base())) {
+                Some(v) => v,
+                None => { crate::warn!("fork_child_trampoline: Thread not found"); loop { x86_64::instructions::hlt(); } }
+            };
             unsafe {
                 crate::task::usermode::jump_to_usermode_fork_child(entry, stack, rflags, fs);
             }
