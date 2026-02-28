@@ -49,6 +49,13 @@ fn main() {
         // ライブラリをリンク
         println!("cargo:rustc-link-lib=static=c");
         println!("cargo:rustc-link-lib=static=g");
+        // ensure libgcc_s exists by copying libg.a if necessary
+        let libgcc_s = ramfs_dir.join("libgcc_s.a");
+        let libg = ramfs_dir.join("libg.a");
+        if !libgcc_s.exists() && libg.exists() {
+            let _ = std::fs::copy(&libg, &libgcc_s);
+        }
+        println!("cargo:rustc-link-lib=static=gcc_s");
         println!("cargo:rustc-link-lib=static=m");
         println!("cargo:rustc-link-lib=static=nosys");
     } else if newlib_dir.exists() {

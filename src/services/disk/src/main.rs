@@ -128,6 +128,7 @@ fn init_disks() {
 }
 
 #[no_mangle]
+#[allow(static_mut_refs)]
 pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
     println!("[DISK] Disk I/O Service Started.");
 
@@ -185,7 +186,7 @@ pub extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
                     let disk_id = req.disk_id as usize;
                     if disk_id < MAX_DISKS {
                         unsafe {
-                            if let Some(ref mut drive) = DISKS[disk_id] {
+                            if let Some(ref mut _drive) = DISKS[disk_id] {
                                 // データは次のメッセージで受信する想定
                                 // 簡略化のため未実装
                                 resp.status = -38; // ENOSYS

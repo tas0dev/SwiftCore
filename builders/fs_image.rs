@@ -14,7 +14,7 @@ pub fn create_initfs_image(ramfs_dir: &Path, output_path: &Path) -> Result<(), S
         .args(["-t", "ext2", "-b", "4096", "-m", "0", "-L", "initfs", "-d"])
         .arg(ramfs_dir)
         .arg(output_path)
-        .arg("16384") // 64MB (16384 * 4KB blocks) - initfs用に十分なサイズ
+        .arg("32768") // 128MB (32768 * 4KB blocks) - increase size to fit static libs like libgcc_s.a
         .status();
 
     match status {
