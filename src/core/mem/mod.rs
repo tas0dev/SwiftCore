@@ -24,11 +24,20 @@ pub fn init(boot_info: &'static crate::BootInfo) {
 
     paging::init(boot_info);
 
-    allocator::init_heap(
-        &mut *paging::PAGE_TABLE.lock().as_mut().expect("PAGE_TABLE not initialized"),
-        &mut *frame::FRAME_ALLOCATOR.lock().as_mut().expect("FRAME_ALLOCATOR not initialized"),
-        boot_info.kernel_heap_addr,
-    ).expect("Heap initialization failed");
+    let mut page_table_lock = paging::PAGE_TABLE.lock();
+    let page_table = match page_table_lock.as_mut() {
+        Some(p) => p,
+        None => { crate::warn!("PAGE_TABLE not initialized"); loop { x86_64::instructions::hlt(); } }
+    };
+    let mut frame_alloc_lock = frame::FRAME_ALLOCATOR.lock();
+    let frame_alloc = match frame_alloc_lock.as_mut() {
+        Some(fa) => fa,
+        None => { crate::warn!("FRAME_ALLOCATOR not initialized"); loop { x86_64::instructions::hlt(); } }
+    };
+    if let Err(e) = allocator::init_heap(&mut *page_table, &mut *frame_alloc, boot_info.kernel_heap_addr) {
+        crate::warn!("Heap initialization failed: {:?}", e);
+        loop { x86_64::instructions::hlt(); }
+    }
 
     // カーネルアロケータへ切り替え
     unsafe {

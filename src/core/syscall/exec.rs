@@ -96,11 +96,27 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                 for si in 0..shnum {
                     let sh_off = shoff + si * shentsz;
                     if sh_off + shentsz > data.len() { break; }
-                    let sh_type = u32::from_le_bytes(data[sh_off + 4..sh_off + 8].try_into().expect("ELF section header truncated"));
-                    let sh_offset = u64::from_le_bytes(data[sh_off + 24..sh_off + 32].try_into().expect("ELF section header truncated")) as usize;
-                    let sh_size = u64::from_le_bytes(data[sh_off + 32..sh_off + 40].try_into().expect("ELF section header truncated")) as usize;
-                    let sh_link = u32::from_le_bytes(data[sh_off + 40..sh_off + 44].try_into().expect("ELF section header truncated"));
-                    let sh_entsize = u64::from_le_bytes(data[sh_off + 56..sh_off + 64].try_into().expect("ELF section header truncated")) as usize;
+                    let sh_type = match data[sh_off + 4..sh_off + 8].try_into() {
+                        Ok(b) => u32::from_le_bytes(b),
+                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                    };
+                    let sh_offset = match data[sh_off + 24..sh_off + 32].try_into() {
+                        Ok(b) => u64::from_le_bytes(b) as usize,
+                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                    };
+                    let sh_size = match data[sh_off + 32..sh_off + 40].try_into() {
+                        Ok(b) => u64::from_le_bytes(b) as usize,
+                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                    };
+                    let sh_link = match data[sh_off + 40..sh_off + 44].try_into() {
+                        Ok(b) => u32::from_le_bytes(b),
+                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                    };
+                    let sh_entsize = match data[sh_off + 56..sh_off + 64].try_into() {
+                        Ok(b) => u64::from_le_bytes(b) as usize,
+                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                    };
+
                     // SHT_SYMTAB == 2
                     if sh_type == 2 {
                         symtab_offset = sh_offset;
@@ -110,8 +126,15 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                         let link_idx = sh_link as usize;
                         if link_idx < shnum {
                             let link_sh_off = shoff + link_idx * shentsz;
-                            strtab_offset = u64::from_le_bytes(data[link_sh_off + 24..link_sh_off + 32].try_into().expect("ELF section header truncated")) as usize;
-                            strtab_size = u64::from_le_bytes(data[link_sh_off + 32..link_sh_off + 40].try_into().expect("ELF section header truncated")) as usize;
+                            strtab_offset = match data[link_sh_off + 24..link_sh_off + 32].try_into() {
+                                Ok(b) => u64::from_le_bytes(b) as usize,
+                                Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                            };
+                            strtab_size = match data[link_sh_off + 32..link_sh_off + 40].try_into() {
+                                Ok(b) => u64::from_le_bytes(b) as usize,
+                                Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                            };
+
                         }
                         break;
                     }
@@ -121,8 +144,15 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                     for i_sym in 0..nsyms {
                         let sym_off = symtab_offset + i_sym * symtab_entsize;
                         if sym_off + symtab_entsize > data.len() { break; }
-                        let st_name = u32::from_le_bytes(data[sym_off..sym_off+4].try_into().expect("ELF symbol entry truncated")) as usize;
-                        let st_value = u64::from_le_bytes(data[sym_off+8..sym_off+16].try_into().expect("ELF symbol entry truncated"));
+                        let st_name = match data[sym_off..sym_off+4].try_into() {
+                            Ok(b) => u32::from_le_bytes(b) as usize,
+                            Err(_) => { crate::warn!("ELF symbol entry truncated"); break; }
+                        };
+                        let st_value = match data[sym_off+8..sym_off+16].try_into() {
+                            Ok(b) => u64::from_le_bytes(b),
+                            Err(_) => { crate::warn!("ELF symbol entry truncated"); break; }
+                        };
+
                         if st_name < strtab_size {
                             let name_off = strtab_offset + st_name;
                             if name_off < data.len() {
@@ -226,7 +256,10 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         page_data.extend_from_slice(&string_block);
 
         // サイズを確認
-        assert_eq!(page_data.len(), 4096);
+        if page_data.len() != 4096 {
+            crate::warn!("internal: page_data.len() != 4096: {}", page_data.len());
+            return crate::syscall::types::EINVAL;
+        }
 
         crate::debug!("Allocating user stack: base={:#x}, top={:#x}, size={} pages, rsp={:#x}",
                       stack_base_vaddr, stack_end_vaddr, stack_size_pages, initial_rsp);
@@ -433,7 +466,10 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
     page_data.extend_from_slice(&0u64.to_ne_bytes()); // auxv[1]
     page_data.resize(page_data.len() + padding_len, 0);
     page_data.extend_from_slice(&string_block);
-    assert_eq!(page_data.len(), 4096);
+    if page_data.len() != 4096 {
+        crate::warn!("internal: page_data.len() != 4096: {}", page_data.len());
+        return crate::syscall::types::EINVAL;
+    }
 
     if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
         new_pt_phys, stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true, false,

@@ -56,6 +56,13 @@ pub fn init_heap(
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
-    panic!("allocation error: {:?}", layout)
+    // パニックを避け、ログを出してハルトする
+    crate::warn!("allocation error: {:?}", layout);
+    #[cfg(target_arch = "x86_64")]
+    unsafe { x86_64::instructions::interrupts::disable(); }
+    loop {
+        #[cfg(target_arch = "x86_64")]
+        unsafe { core::arch::asm!("hlt"); }
+    }
 }
 

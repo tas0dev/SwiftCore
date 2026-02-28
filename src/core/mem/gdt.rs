@@ -97,37 +97,41 @@ pub fn init() {
 /// ユーザーモード用コードセレクタ（RPL=3）を返す
 pub fn user_code_selector() -> u16 {
     GDT.get()
-        .expect("GDT not initialized")
-        .1
-        .user_code_selector
-        .0
+        .map(|g| g.1.user_code_selector.0)
+        .unwrap_or_else(|| {
+            crate::warn!("GDT not initialized");
+            loop { x86_64::instructions::hlt(); }
+        })
 }
 
 /// ユーザーモード用データセレクタ（RPL=3）を返す
 pub fn user_data_selector() -> u16 {
     GDT.get()
-        .expect("GDT not initialized")
-        .1
-        .user_data_selector
-        .0
+        .map(|g| g.1.user_data_selector.0)
+        .unwrap_or_else(|| {
+            crate::warn!("GDT not initialized");
+            loop { x86_64::instructions::hlt(); }
+        })
 }
 
 /// カーネル用コードセレクタを返す
 pub fn kernel_code_selector() -> u16 {
     GDT.get()
-        .expect("GDT not initialized")
-        .1
-        .code_selector
-        .0
+        .map(|g| g.1.code_selector.0)
+        .unwrap_or_else(|| {
+            crate::warn!("GDT not initialized");
+            loop { x86_64::instructions::hlt(); }
+        })
 }
 
 /// カーネル用データセレクタを返す
 pub fn kernel_data_selector() -> u16 {
     GDT.get()
-        .expect("GDT not initialized")
-        .1
-        .data_selector
-        .0
+        .map(|g| g.1.data_selector.0)
+        .unwrap_or_else(|| {
+            crate::warn!("GDT not initialized");
+            loop { x86_64::instructions::hlt(); }
+        })
 }
 
 #[allow(unused)]
