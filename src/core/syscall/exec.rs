@@ -45,9 +45,9 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
 
         // プロセス固有のページテーブルを作成
         let new_pt_phys = match crate::mem::paging::create_user_page_table() {
-            Some(phys) => phys,
-            None => {
-                crate::warn!("Failed to create user page table for {}", process_name);
+            Ok(phys) => phys,
+            Err(e) => {
+                crate::warn!("Failed to create user page table for {}: {:?}", process_name, e);
                 return crate::syscall::types::EINVAL;
             }
         };
@@ -405,8 +405,8 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
 
     // 新しいページテーブルを作成
     let new_pt_phys = match crate::mem::paging::create_user_page_table() {
-        Some(p) => p,
-        None => return EINVAL,
+        Ok(p) => p,
+        Err(_) => return EINVAL,
     };
 
     // PT_LOAD セグメントをマップ
