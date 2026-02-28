@@ -1,160 +1,214 @@
 //! ファイルシステム関連のシステムコール
 
-use super::types::{ENOSYS, EBADF, SUCCESS};
+use super::types::{ENOSYS, EBADF, SUCCESS, EINVAL, ENOENT, EFAULT};
+use crate::interrupt::spinlock::SpinLock;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec::Vec;
+use core::ptr;
 
-/// Openシステムコール（未実装）
-///
-/// ファイルを開く
-///
-/// # 引数
-/// - `_path_ptr`: ファイルパスへのポインタ
-/// - `_flags`: オープンフラグ
-///
-/// # 戻り値
-/// ファイルディスクリプタ、またはエラーコード
-pub fn open(_path_ptr: u64, _flags: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
-    ENOSYS
+const MAX_FDS: usize = 64;
+const FD_BASE: usize = 3; // 0,1,2 は stdio 用に予約
+
+/// ユーザ空間から開かれたファイルを保持するハンドル
+#[repr(C)]
+struct FileHandle {
+    data: Box<[u8]>,
+    pos: usize,
 }
 
-/// Closeシステムコール（未実装）
-///
-/// ファイルを閉じる
-///
-/// # 引数
-/// - `_fd`: ファイルディスクリプタ
-///
-/// # 戻り値
-/// 成功時はSUCCESS、エラー時はエラーコード
-pub fn close(_fd: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
-    if _fd < 3 {
-        // stdin/stdout/stderr は閉じられない
-        EBADF
-    } else {
-        ENOSYS
+// ファイルディスクリプタテーブル: 0 == 未使用, それ以外は Box<FileHandle> の生ポインタ (u64)
+static FD_TABLE: SpinLock<[u64; MAX_FDS]> = SpinLock::new([0u64; MAX_FDS]);
+
+// ユーザー文字列 (null 末尾) を安全にコピーして String にする
+fn read_cstring(ptr: u64) -> Result<String, u64> {
+    if ptr == 0 {
+        return Err(EINVAL);
+    }
+    let mut len = 0usize;
+    unsafe {
+        let mut p = ptr as *const u8;
+        while ptr::read(p) != 0 {
+            len += 1;
+            p = p.add(1);
+            if len > 1024 {
+                return Err(EINVAL);
+            }
+        }
+        let slice = core::slice::from_raw_parts(ptr as *const u8, len);
+        match core::str::from_utf8(slice) {
+            Ok(s) => Ok(s.to_string()),
+            Err(_) => Err(EINVAL),
+        }
     }
 }
 
-/// Seekシステムコール（未実装）
-///
-/// ファイルの読み書き位置を変更する
-///
-/// # 引数
-/// - `_fd`: ファイルディスクリプタ
-/// - `_offset`: オフセット
-/// - `_whence`: 基準位置 (0=SEEK_SET, 1=SEEK_CUR, 2=SEEK_END)
-///
-/// # 戻り値
-/// 新しいファイル位置、またはエラーコード
-pub fn seek(_fd: u64, _offset: i64, _whence: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
+/// Openシステムコール (initfs の読み取り専用をサポートする簡易実装)
+/// - path はユーザー空間の null 終端文字列ポインタ
+/// - flags は無視
+pub fn open(path_ptr: u64, _flags: u64) -> u64 {
+    let path = match read_cstring(path_ptr) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    // initfs からファイルを読み込む
+    let data_vec = match crate::init::fs::read(&path) {
+        Some(d) => d,
+        None => return ENOENT,
+    };
+
+    // ハンドルを確保して所有権を Box にして登録する
+    let handle = Box::new(FileHandle { data: data_vec.into_boxed_slice(), pos: 0 });
+    let ptr = Box::into_raw(handle) as u64;
+
+    let mut table = FD_TABLE.lock();
+    for i in FD_BASE..MAX_FDS {
+        if table[i] == 0 {
+            table[i] = ptr;
+            return i as u64;
+        }
+    }
+
+    // 空きなし -> 解放してエラー
+    unsafe { Box::from_raw(ptr as *mut FileHandle); }
     ENOSYS
 }
 
-/// Fstatシステムコール（未実装）
-///
-/// ファイルの情報を取得する
-pub fn fstat(_fd: u64, _stat_ptr: u64) -> u64 {
-    ENOSYS
+/// Closeシステムコール
+pub fn close(fd: u64) -> u64 {
+    if fd < FD_BASE as u64 {
+        return EBADF; // stdin/stdout/stderr は閉じられない
+    }
+    let idx = fd as usize;
+    if idx >= MAX_FDS { return EBADF; }
+
+    let mut table = FD_TABLE.lock();
+    let ptr = table[idx];
+    if ptr == 0 { return EBADF; }
+    table[idx] = 0;
+    drop(table);
+
+    // 所有権を回収して破棄
+    unsafe { Box::from_raw(ptr as *mut FileHandle); }
+    SUCCESS
 }
 
-/// Statシステムコール（未実装）
-///
-/// ファイルの情報を取得する
-///
-/// # 引数
-/// - `_path_ptr`: ファイルパスへのポインタ
-/// - `_stat_ptr`: stat構造体へのポインタ
-///
-/// # 戻り値
-/// 成功時はSUCCESS、エラー時はエラーコード
-pub fn stat(_path_ptr: u64, _stat_ptr: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
-    ENOSYS
+/// Seekシステムコール
+pub fn seek(fd: u64, offset: i64, whence: u64) -> u64 {
+    if fd < FD_BASE as u64 { return ENOSYS; }
+    let idx = fd as usize;
+    if idx >= MAX_FDS { return EBADF; }
+
+    let mut table = FD_TABLE.lock();
+    let ptr = table[idx];
+    if ptr == 0 { return EBADF; }
+
+    let fh = unsafe { &mut *(ptr as *mut FileHandle) };
+    let len = fh.data.len() as i64;
+    let new_pos = match whence {
+        0 => offset,                 // SEEK_SET
+        1 => fh.pos as i64 + offset,  // SEEK_CUR
+        2 => len + offset,           // SEEK_END
+        _ => return EINVAL,
+    };
+    if new_pos < 0 { return EINVAL; }
+    let new_pos = core::cmp::min(new_pos as usize, fh.data.len());
+    fh.pos = new_pos;
+    fh.pos as u64
 }
 
-/// Mkdirシステムコール（未実装）
-///
-/// ディレクトリを作成する
-///
-/// # 引数
-/// - `_path_ptr`: ディレクトリパスへのポインタ
-/// - `_mode`: パーミッション
-///
-/// # 戻り値
-/// 成功時はSUCCESS、エラー時はエラーコード
+/// Fstatシステムコール (簡易実装: 指定されたポインタが0でなければ成功を返す)
+pub fn fstat(fd: u64, stat_ptr: u64) -> u64 {
+    if stat_ptr == 0 { return EFAULT; }
+    // 最小限の実装: 成功を返す（ユーザーland が構造体の全フィールドを必要としない前提）
+    let _ = fd; // 将来的には st_mode, st_size を書き込む
+    SUCCESS
+}
+
+/// Statシステムコール (簡易実装)
+pub fn stat(path_ptr: u64, stat_ptr: u64) -> u64 {
+    if path_ptr == 0 || stat_ptr == 0 { return EINVAL; }
+    let path = match read_cstring(path_ptr) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    if crate::init::fs::read(&path).is_some() {
+        SUCCESS
+    } else {
+        ENOENT
+    }
+}
+
+/// Mkdirシステムコール（読み取り専用ファイルシステムのため未実装）
 pub fn mkdir(_path_ptr: u64, _mode: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
     ENOSYS
 }
 
-/// Rmdirシステムコール（未実装）
-///
-/// ディレクトリを削除する
-///
-/// # 引数
-/// - `_path_ptr`: ディレクトリパスへのポインタ
-///
-/// # 戻り値
-/// 成功時はSUCCESS、エラー時はエラーコード
+/// Rmdirシステムコール（読み取り専用ファイルシステムのため未実装）
 pub fn rmdir(_path_ptr: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
     ENOSYS
 }
 
-/// Readdirシステムコール（未実装）
-///
-/// ディレクトリエントリを読み取る
-///
-/// # 引数
-/// - `_fd`: ディレクトリのファイルディスクリプタ
-/// - `_buf_ptr`: バッファへのポインタ
-/// - `_buf_len`: バッファサイズ
-///
-/// # 戻り値
-/// 読み取ったバイト数、またはエラーコード
-pub fn readdir(_fd: u64, _buf_ptr: u64, _buf_len: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
-    ENOSYS
+/// Readdirシステムコール（簡易実装）
+/// - 指定された buf_ptr に root ディレクトリのファイル名を改行区切りで書き込む
+pub fn readdir(_fd: u64, buf_ptr: u64, buf_len: u64) -> u64 {
+    if buf_ptr == 0 || buf_len == 0 { return EINVAL; }
+    let mut names = Vec::new();
+    for e in crate::init::fs::entries() {
+        names.push(e.name.to_string());
+    }
+    let joined = names.join("\n");
+    let bytes = joined.as_bytes();
+    let to_copy = core::cmp::min(bytes.len(), buf_len as usize);
+    unsafe {
+        let dst = core::slice::from_raw_parts_mut(buf_ptr as *mut u8, to_copy);
+        dst.copy_from_slice(&bytes[..to_copy]);
+    }
+    to_copy as u64
 }
 
-/// Chdirシステムコール（未実装）
-///
-/// カレントディレクトリを変更する
-///
-/// # 引数
-/// - `_path_ptr`: ディレクトリパスへのポインタ
-///
-/// # 戻り値
-/// 成功時はSUCCESS、エラー時はエラーコード
-pub fn chdir(_path_ptr: u64) -> u64 {
-    // TODO: ファイルシステムを実装後に対応
-    ENOSYS
+/// Chdirシステムコール（簡易実装）
+pub fn chdir(path_ptr: u64) -> u64 {
+    if path_ptr == 0 { return EINVAL; }
+    let path = match read_cstring(path_ptr) { Ok(s) => s, Err(e) => return e };
+    // initfs はルートのみサポートしているため "/" のみを受け入れる
+    if path == "/" { SUCCESS } else { ENOENT }
 }
 
 /// Getcwdシステムコール（簡易実装）
-///
-/// カレントディレクトリを取得する
-///
-/// # 引数
-/// - `buf_ptr`: バッファへのポインタ
-/// - `size`: バッファサイズ
-///
-/// # 戻り値
-/// 成功時はbuf_ptr、エラー時はエラーコード
 pub fn getcwd(buf_ptr: u64, size: u64) -> u64 {
-    if buf_ptr == 0 || size == 0 {
-        return super::types::EINVAL;
-    }
-    // 暫定実装: "/" を返す
+    if buf_ptr == 0 || size == 0 { return EINVAL; }
     let cwd = b"/\0";
-    if (size as usize) < cwd.len() {
-        return super::types::EINVAL;
-    }
-    unsafe {
-        core::ptr::copy_nonoverlapping(cwd.as_ptr(), buf_ptr as *mut u8, cwd.len());
-    }
+    if (size as usize) < cwd.len() { return EINVAL; }
+    unsafe { core::ptr::copy_nonoverlapping(cwd.as_ptr(), buf_ptr as *mut u8, cwd.len()); }
     buf_ptr
+}
+
+/// Read: 開かれたファイルからデータを読み込む簡易実装
+pub fn read(fd: u64, buf_ptr: u64, len: u64) -> u64 {
+    if buf_ptr == 0 { return EFAULT; }
+    if len == 0 { return 0; }
+    if fd < FD_BASE as u64 { return EBADF; }
+    let idx = fd as usize;
+    if idx >= MAX_FDS { return EBADF; }
+    let mut table = FD_TABLE.lock();
+    let ptr = table[idx];
+    if ptr == 0 { return EBADF; }
+    // ロックを解放してからユーザーメモリへアクセス
+    table[idx] = table[idx];
+    drop(table);
+
+    let fh = unsafe { &mut *(ptr as *mut FileHandle) };
+    let avail = fh.data.len().saturating_sub(fh.pos);
+    if avail == 0 { return 0; }
+    let to_read = core::cmp::min(avail, len as usize);
+    unsafe {
+        let dst = core::slice::from_raw_parts_mut(buf_ptr as *mut u8, to_read);
+        dst.copy_from_slice(&fh.data[fh.pos..fh.pos + to_read]);
+    }
+    fh.pos += to_read;
+    to_read as u64
 }
 
