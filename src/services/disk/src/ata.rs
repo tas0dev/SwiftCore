@@ -8,6 +8,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use swiftlib::libc::{inb, outb, inw, outw};
 
 /// ATAポート
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct AtaPorts {
     /// データレジスタ
@@ -243,6 +244,7 @@ impl AtaDrive {
     }
 
     /// セクタに書き込む（LBA28モード）
+    #[allow(dead_code)]
     pub fn write_sector(&mut self, lba: u64, buffer: &[u8]) -> AtaResult<()> {
         if !self.is_initialized() {
             return Err(AtaError::NotReady);
@@ -294,9 +296,7 @@ impl AtaDrive {
             DriveType::Master => 0xE0, // LBA, Master
             DriveType::Slave => 0xF0,  // LBA, Slave
         };
-        unsafe {
-            outb(self.ports.drive_head, value);
-        }
+        outb(self.ports.drive_head, value);
     }
 
     /// LBA28アドレスを書き込む
@@ -339,6 +339,7 @@ impl AtaDrive {
     }
 
     /// データを書き込む
+    #[allow(dead_code)]
     unsafe fn write_data(&self, data: u16) {
         outw(self.ports.data, data);
     }
