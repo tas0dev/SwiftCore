@@ -80,10 +80,12 @@ pub enum SyscallNumber {
     Readdir = 524,
     /// カレントディレクトリ変更
     Chdir = 525,
+    /// キーボードから1文字読み取る（ユーザー側）
+    KeyboardRead = 526,
 }
 
 /// 入力が空
-pub const ENODATA: u64 = u64::MAX - 4;
+pub const ENODATA: u64 = (-61i64) as u64;
 
 #[inline(always)]
 pub(crate) fn syscall0(num: u64) -> u64 {
