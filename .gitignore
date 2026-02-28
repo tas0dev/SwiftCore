@@ -5,6 +5,8 @@ target/
 *.service
 *.o
 *.a
+*.rlib
+*.so
 
 # editor config files
 .idea/

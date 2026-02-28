@@ -259,5 +259,5 @@ dependencies = [
 ]
 
 [[patch.unused]]
-name = "libc"
+name = "posix"
 version = "0.2.0"

@@ -32,13 +32,21 @@ SwiftCoreはハイブリッドアーキテクチャを採用した、新しいOS
     ```
 3. libcのconfigureをします。
     ```bash
+    cd scripts
+    ./configure.sh
+    ```
+    or
+    ```bash
     cd src/lib
     ./configure
     ```
+
 4. ビルドします。
     ```bash
     cargo build
     ```
+
+初回のビルドにはまあまあ時間かかります。
 
 ## How to contribute?
 ライセンスは[この](./LICENSE)ファイルを参照してください

@@ -16,36 +16,48 @@ struct TestApp {
 }
 
 const SERVICES: &[ServiceDef] = &[
-    ServiceDef { name: "disk.service", path: "disk.service", order: 5 },
-    ServiceDef { name: "fs.service", path: "fs.service", order: 10 },
+    ServiceDef {
+        name: "disk.service",
+        path: "disk.service",
+        order: 5,
+    },
+    ServiceDef {
+        name: "fs.service",
+        path: "fs.service",
+        order: 10,
+    },
 ];
 
 #[cfg(feature = "run_tests")]
-const TEST_APPS: &[TestApp] = &[
-    TestApp { name: "tests", path: "/tests.elf" },
-];
+const TEST_APPS: &[TestApp] = &[TestApp {
+    name: "tests",
+    path: "/tests.elf",
+}];
 
 #[cfg(not(feature = "run_tests"))]
 const TEST_APPS: &[TestApp] = &[];
 
 /// サービスを起動する
 fn start_service(service: &ServiceDef) -> Result<u32, String> {
-    println!("[CORE] Starting service: {} (order={})", service.name, service.order);
+    println!(
+        "[CORE] Starting service: {} (order={})",
+        service.name, service.order
+    );
 
     // std::process::Command を使用
     // SwiftCore側で fork/exec相当のシステムコールが実装されている前提
     match Command::new(service.path)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .spawn() 
+        .spawn()
     {
         Ok(child) => {
             let pid = child.id();
             println!("[CORE] Started {} with PID {}", service.name, pid);
-            
+
             // std::thread::sleep を使用
             thread::sleep(Duration::from_millis(100));
-            
+
             Ok(pid)
         }
         Err(e) => {

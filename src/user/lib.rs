@@ -30,7 +30,6 @@ pub mod libc;
 pub mod posix_stubs;
 
 use core::panic::PanicInfo;
-use crate::libc::*;
 use crate::sys::SyscallNumber;
 
 #[panic_handler]
