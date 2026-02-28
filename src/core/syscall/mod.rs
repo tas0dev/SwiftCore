@@ -8,11 +8,12 @@ pub mod io;
 pub mod process;
 pub mod fs;
 pub mod io_port;
+pub mod keyboard;
 pub mod syscall_entry;
 
 mod types;
 
-pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS, EBADF, EFAULT, ENOENT, EPERM, SUCCESS};
+pub use types::{SyscallNumber, EAGAIN, EINVAL, ENOSYS, EBADF, EFAULT, ENOENT, EPERM, ENODATA, SUCCESS};
 
 use core::arch::asm;
 use x86_64::structures::idt::InterruptStackFrame;
@@ -59,6 +60,7 @@ pub fn dispatch(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64)
         x if x == SyscallNumber::Rmdir as u64        => fs::rmdir(arg0),
         x if x == SyscallNumber::Readdir as u64      => fs::readdir(arg0, arg1, arg2),
         x if x == SyscallNumber::Chdir as u64        => fs::chdir(arg0),
+        x if x == SyscallNumber::KeyboardRead as u64  => keyboard::read_char(),
         x if x == SyscallNumber::FindProcessByName as u64 => process::find_process_by_name(arg0, arg1),
         _ => ENOSYS,
     }

@@ -1,10 +1,7 @@
-use crate::driver::ps2_keyboard;
 use crate::syscall::ENODATA;
 
-/// キーボード1文字読み取り
+/// キーボード1文字読み取り（簡易実装）
+/// 実機ドライバがない場合は常に ENODATA を返す
 pub fn read_char() -> u64 {
-    match ps2_keyboard::read_char() {
-        Some(ch) => ch as u64,
-        None => ENODATA,
-    }
+    ENODATA
 }

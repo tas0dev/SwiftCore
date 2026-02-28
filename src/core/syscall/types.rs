@@ -78,6 +78,8 @@ pub enum SyscallNumber {
     Readdir = 524,
     /// カレントディレクトリ変更
     Chdir = 525,
+    /// キーボードから1文字読み取る（SwiftCore 固有）
+    KeyboardRead = 526,
 }
 
 /// 成功
@@ -100,6 +102,8 @@ pub const ENXIO: u64 = (-6i64) as u64;
 pub const EINVAL: u64 = (-22i64) as u64;
 /// 未実装
 pub const ENOSYS: u64 = (-38i64) as u64;
+/// データがない / ノンブロッキングで読み出しできない
+pub const ENODATA: u64 = (-61i64) as u64;
 /// 受信/送信できない（キュー空/満杯）
 pub const EAGAIN: u64 = (-11i64) as u64;
 /// メモリ不足

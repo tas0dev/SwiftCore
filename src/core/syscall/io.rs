@@ -78,18 +78,29 @@ pub fn write(fd: u64, buf_ptr: u64, len: u64) -> u64 {
     len
 }
 
-/// Readシステムコール（現在は未実装）
-///
-/// # 引数
-/// - `_fd`: ファイルディスクリプタ
-/// - `_buf_ptr`: 読み込むバッファのポインタ
-/// - `_len`: 読み込むバッファの長さ
-///
-/// # 戻り値
-/// 読み込んだバイト数、またはエラーコード
-pub fn read(_fd: u64, _buf_ptr: u64, _len: u64) -> u64 {
-    // TODO: キーボード入力やその他の入力ソースからの読み込みを実装
-    super::types::ENOSYS
+/// Readシステムコール
+/// - fd == 0 の場合はキーボードから1バイト読み取る（なければ ENODATA を返す）
+/// - fd >= 3 の場合は initfs から開かれたファイルを読み取る（fs::read に委譲）
+pub fn read(fd: u64, buf_ptr: u64, len: u64) -> u64 {
+    use super::types::{ENODATA, EFAULT};
+
+    if buf_ptr == 0 { return EFAULT; }
+    if len == 0 { return 0; }
+
+    if fd == 0 {
+        // キーボードから1文字読み取り
+        let ch = crate::syscall::keyboard::read_char();
+        if ch == ENODATA { return ENODATA; }
+        // 返された値を1バイトとしてコピー
+        unsafe {
+            let dst = core::slice::from_raw_parts_mut(buf_ptr as *mut u8, 1);
+            dst[0] = ch as u8;
+        }
+        return 1;
+    }
+
+    // その他の FD は fs モジュールに委譲
+    crate::syscall::fs::read(fd, buf_ptr, len)
 }
 
 /// Logシステムコール
