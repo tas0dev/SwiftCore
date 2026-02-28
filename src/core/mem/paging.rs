@@ -452,16 +452,16 @@ pub use x86_64::PhysAddr;
 ///
 /// ## Returns
 /// 新しいL4テーブルの物理アドレス
-pub fn create_user_page_table() -> Option<u64> {
-    let phys_off = physical_memory_offset()?;
+pub fn create_user_page_table() -> Result<u64> {
+    let phys_off = physical_memory_offset().ok_or(Kernel::Memory(Memory::NotMapped))?;
 
     // カーネルの「元の」L4テーブルを使用する（syscall中はCR3がユーザープロセスのテーブルなため）
     let kernel_l4_phys = KERNEL_L4_PHYS.load(core::sync::atomic::Ordering::Relaxed);
-    if kernel_l4_phys == 0 { return None; }
+    if kernel_l4_phys == 0 { return Err(Kernel::Memory(Memory::NotMapped)); }
     let kernel_l4 = unsafe { &*((kernel_l4_phys + phys_off) as *const PageTable) };
 
     // 新しいL4フレームを確保してゼロ初期化
-    let new_l4_frame = frame::allocate_frame().ok()?;
+    let new_l4_frame = frame::allocate_frame()?;
     let new_l4_phys = new_l4_frame.start_address().as_u64();
     let new_l4 = unsafe { &mut *((new_l4_phys + phys_off) as *mut PageTable) };
     new_l4.zero();
@@ -471,7 +471,7 @@ pub fn create_user_page_table() -> Option<u64> {
         let kernel_l3_phys = kernel_l4[0].addr().as_u64();
         let kernel_l3 = unsafe { &*((kernel_l3_phys + phys_off) as *const PageTable) };
 
-        let new_l3_frame = frame::allocate_frame().ok()?;
+        let new_l3_frame = frame::allocate_frame()?;
         let new_l3_phys = new_l3_frame.start_address().as_u64();
         let new_l3 = unsafe { &mut *((new_l3_phys + phys_off) as *mut PageTable) };
         new_l3.zero();
@@ -481,7 +481,7 @@ pub fn create_user_page_table() -> Option<u64> {
             let kernel_l2_phys = kernel_l3[0].addr().as_u64();
             let kernel_l2 = unsafe { &*((kernel_l2_phys + phys_off) as *const PageTable) };
 
-            let new_l2_frame = frame::allocate_frame().ok()?;
+            let new_l2_frame = frame::allocate_frame()?;
             let new_l2_phys = new_l2_frame.start_address().as_u64();
             let new_l2 = unsafe { &mut *((new_l2_phys + phys_off) as *mut PageTable) };
             new_l2.zero();
@@ -521,7 +521,7 @@ pub fn create_user_page_table() -> Option<u64> {
         new_l4[i] = kernel_l4[i].clone();
     }
 
-    Some(new_l4_phys)
+    Ok(new_l4_phys)
 }
 
 /// 指定したページテーブル（物理アドレス）にセグメントをマップしてコピーする
