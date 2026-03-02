@@ -26,6 +26,11 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
     }
     let path = provided_path.unwrap_or("/hello.bin");
 
+    // ユーザー空間からはサービス（.serviceで終わる名前）を起動できない
+    if path.ends_with(".service") {
+        return crate::syscall::types::EPERM;
+    }
+
     exec_internal(path, None)
 }
 
@@ -37,6 +42,12 @@ pub fn exec_kernel_with_name(path: &str, name: &str) -> u64 {
 fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
     let process_name = name_override.unwrap_or(path);
     crate::debug!("exec: path={}, name={}", path, process_name);
+
+    // カーネルを経由しても、core.service以外のサービスは起動できない
+    if process_name.ends_with(".service") && process_name != "core.service" {
+        crate::warn!("exec: '{}' の起動が拒否されました: core.service のみ起動可能です", process_name);
+        return crate::syscall::types::EPERM;
+    }
 
     if let Some(data) = crate::init::fs::read(path) {
         let data: &[u8] = &data;
@@ -485,7 +496,7 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
 /// - `_argv`: 引数ベクタ (現在は無視)
 /// - `_envp`: 環境変数ベクタ (現在は無視)
 pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
-    use crate::syscall::types::{EINVAL, ENOENT};
+    use crate::syscall::types::{EINVAL, ENOENT, EPERM};
 
     if path_ptr == 0 {
         return EINVAL;
@@ -508,6 +519,11 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
         Ok(s) => s,
         Err(_) => return EINVAL,
     };
+
+    // ユーザー空間からはサービス（.serviceで終わる名前）を起動できない
+    if path.ends_with(".service") {
+        return EPERM;
+    }
 
     // initfs からファイルを読み込む
     let data_vec = match crate::init::fs::read(path) {
