@@ -1,8 +1,8 @@
 //! フレームバッファ出力
 
 use core::fmt;
-use spin::{Mutex, Once};
 use core::fmt::Write;
+use spin::{Mutex, Once};
 
 static FB_INFO: Once<FramebufferInfo> = Once::new();
 
@@ -43,8 +43,7 @@ impl Writer {
         let max_rows = info.height / FONT_HEIGHT;
 
         Self {
-            col
-            : 0,
+            col: 0,
             row: 0,
             max_cols,
             max_rows,
@@ -86,18 +85,15 @@ impl Writer {
         match byte {
             b'\n' => self.new_line(),
             byte => {
-                if self.col
-                 >= self.max_cols {
+                if self.col >= self.max_cols {
                     self.new_line();
                 }
 
-                let x = self.col
-                 * FONT_WIDTH;
+                let x = self.col * FONT_WIDTH;
                 let y = self.row * FONT_HEIGHT;
                 self.draw_char(byte, x, y, 0xFFFFFF, 0x000000); // 白文字、黒背景
 
-                self.col
-                 += 1;
+                self.col += 1;
             }
         }
     }
@@ -116,8 +112,7 @@ impl Writer {
     fn new_line(&mut self) {
         // TODO: 現状画面クリアするだけなので作り直す
         self.row += 1;
-        self.col
-         = 0;
+        self.col = 0;
         if self.row >= self.max_rows {
             self.clear_screen();
         }
@@ -136,8 +131,7 @@ impl Writer {
             }
         }
         self.row = 0;
-        self.col
-         = 0;
+        self.col = 0;
     }
 }
 

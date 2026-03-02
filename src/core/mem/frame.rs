@@ -25,10 +25,10 @@ pub struct BitmapFrameAllocator {
 
 impl BitmapFrameAllocator {
     /// 新しいフレームアロケータを作成
-    /// 
+    ///
     /// ## Arguments
     /// - `memory_map`: ブートローダーから提供されたメモリマップ
-    /// 
+    ///
     /// ## Returns
     /// 新しいフレームアロケータのインスタンス
     pub fn new(memory_map: &'static [MemoryRegion]) -> Self {
@@ -39,7 +39,7 @@ impl BitmapFrameAllocator {
     }
 
     /// 使用可能な物理メモリの総量を計算（バイト）
-    /// 
+    ///
     /// ## Returns
     /// 使用可能な物理メモリの総量（バイト）
     pub fn usable_memory(&self) -> u64 {
@@ -51,7 +51,7 @@ impl BitmapFrameAllocator {
     }
 
     /// 使用可能なフレーム数を計算
-    /// 
+    ///
     /// ## Returns
     /// 使用可能なフレーム数
     pub fn usable_frames(&self) -> usize {
@@ -59,7 +59,7 @@ impl BitmapFrameAllocator {
     }
 
     /// 使用可能なフレームのイテレータを返す
-    /// 
+    ///
     /// ## Returns
     /// 使用可能なフレームのイテレータ
     fn usable_frames_iter(&self) -> impl Iterator<Item = PhysFrame> + '_ {
@@ -113,7 +113,7 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapFrameAllocator {
 }
 
 /// フレームアロケータを初期化
-/// 
+///
 /// ## Arguments
 /// - `memory_map`: ブートローダーから提供されたメモリマップ
 pub fn init(memory_map: &'static [MemoryRegion]) {
@@ -122,7 +122,7 @@ pub fn init(memory_map: &'static [MemoryRegion]) {
 }
 
 /// フレームを割り当て
-/// 
+///
 /// ## Returns
 /// 割り当てられたフレーム、またはエラー
 pub fn allocate_frame() -> Result<PhysFrame> {
@@ -134,7 +134,7 @@ pub fn allocate_frame() -> Result<PhysFrame> {
 }
 
 /// 使用可能なメモリ情報を取得
-/// 
+///
 /// ## Returns
 /// 使用可能な物理メモリの総量（バイト）と使用可能
 pub fn get_memory_info() -> Option<(u64, usize)> {

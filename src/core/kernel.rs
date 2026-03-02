@@ -1,9 +1,9 @@
 use crate::result::handle_kernel_error;
 use crate::result::{Kernel, Process};
-use crate::{debug, info, sprintln, vprintln};
-use crate::{init::kinit, task, util, BootInfo, MemoryRegion, Result};
 use crate::syscall::exec::exec_kernel_with_name;
 use crate::util::log::LogLevel;
+use crate::{debug, info, sprintln, vprintln};
+use crate::{init::kinit, task, util, BootInfo, MemoryRegion, Result};
 
 const KERNEL_THREAD_STACK_SIZE: usize = 4096 * 8;
 
@@ -47,7 +47,10 @@ pub extern "C" fn kernel_entry(boot_info: &'static BootInfo) -> ! {
 }
 
 /// カーネルメインプロセスの作成
-fn create_kernel_proc(boot_info: &'static BootInfo, memory_map: &'static [MemoryRegion]) -> Result<()> {
+fn create_kernel_proc(
+    boot_info: &'static BootInfo,
+    memory_map: &'static [MemoryRegion],
+) -> Result<()> {
     let kernel_process = task::Process::new("kernel", task::PrivilegeLevel::Core, None, 0);
     let kernel_pid = kernel_process.id();
 

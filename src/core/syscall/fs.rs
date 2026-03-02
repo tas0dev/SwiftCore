@@ -1,6 +1,6 @@
 //! ファイルシステム関連のシステムコール
 
-use super::types::{ENOSYS, EBADF, SUCCESS, EINVAL, ENOENT, EFAULT};
+use super::types::{EBADF, EFAULT, EINVAL, ENOENT, ENOSYS, SUCCESS};
 use crate::interrupt::spinlock::SpinLock;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -60,7 +60,10 @@ pub fn open(path_ptr: u64, _flags: u64) -> u64 {
     };
 
     // ハンドルを確保して所有権を Box にして登録する
-    let handle = Box::new(FileHandle { data: data_vec.into_boxed_slice(), pos: 0 });
+    let handle = Box::new(FileHandle {
+        data: data_vec.into_boxed_slice(),
+        pos: 0,
+    });
     let ptr = Box::into_raw(handle) as u64;
 
     let mut table = FD_TABLE.lock();
@@ -72,7 +75,9 @@ pub fn open(path_ptr: u64, _flags: u64) -> u64 {
     }
 
     // 空きなし -> 解放してエラー
-    unsafe { Box::from_raw(ptr as *mut FileHandle); }
+    unsafe {
+        Box::from_raw(ptr as *mut FileHandle);
+    }
     ENOSYS
 }
 
@@ -82,38 +87,52 @@ pub fn close(fd: u64) -> u64 {
         return EBADF; // stdin/stdout/stderr は閉じられない
     }
     let idx = fd as usize;
-    if idx >= MAX_FDS { return EBADF; }
+    if idx >= MAX_FDS {
+        return EBADF;
+    }
 
     let mut table = FD_TABLE.lock();
     let ptr = table[idx];
-    if ptr == 0 { return EBADF; }
+    if ptr == 0 {
+        return EBADF;
+    }
     table[idx] = 0;
     drop(table);
 
     // 所有権を回収して破棄
-    unsafe { Box::from_raw(ptr as *mut FileHandle); }
+    unsafe {
+        Box::from_raw(ptr as *mut FileHandle);
+    }
     SUCCESS
 }
 
 /// Seekシステムコール
 pub fn seek(fd: u64, offset: i64, whence: u64) -> u64 {
-    if fd < FD_BASE as u64 { return ENOSYS; }
+    if fd < FD_BASE as u64 {
+        return ENOSYS;
+    }
     let idx = fd as usize;
-    if idx >= MAX_FDS { return EBADF; }
+    if idx >= MAX_FDS {
+        return EBADF;
+    }
 
     let mut table = FD_TABLE.lock();
     let ptr = table[idx];
-    if ptr == 0 { return EBADF; }
+    if ptr == 0 {
+        return EBADF;
+    }
 
     let fh = unsafe { &mut *(ptr as *mut FileHandle) };
     let len = fh.data.len() as i64;
     let new_pos = match whence {
         0 => offset,                 // SEEK_SET
-        1 => fh.pos as i64 + offset,  // SEEK_CUR
+        1 => fh.pos as i64 + offset, // SEEK_CUR
         2 => len + offset,           // SEEK_END
         _ => return EINVAL,
     };
-    if new_pos < 0 { return EINVAL; }
+    if new_pos < 0 {
+        return EINVAL;
+    }
     let new_pos = core::cmp::min(new_pos as usize, fh.data.len());
     fh.pos = new_pos;
     fh.pos as u64
@@ -121,7 +140,9 @@ pub fn seek(fd: u64, offset: i64, whence: u64) -> u64 {
 
 /// Fstatシステムコール (簡易実装: 指定されたポインタが0でなければ成功を返す)
 pub fn fstat(fd: u64, stat_ptr: u64) -> u64 {
-    if stat_ptr == 0 { return EFAULT; }
+    if stat_ptr == 0 {
+        return EFAULT;
+    }
     // 最小限の実装: 成功を返す（ユーザーland が構造体の全フィールドを必要としない前提）
     let _ = fd; // 将来的には st_mode, st_size を書き込む
     SUCCESS
@@ -129,7 +150,9 @@ pub fn fstat(fd: u64, stat_ptr: u64) -> u64 {
 
 /// Statシステムコール (簡易実装)
 pub fn stat(path_ptr: u64, stat_ptr: u64) -> u64 {
-    if path_ptr == 0 || stat_ptr == 0 { return EINVAL; }
+    if path_ptr == 0 || stat_ptr == 0 {
+        return EINVAL;
+    }
     let path = match read_cstring(path_ptr) {
         Ok(s) => s,
         Err(e) => return e,
@@ -154,7 +177,9 @@ pub fn rmdir(_path_ptr: u64) -> u64 {
 /// Readdirシステムコール（簡易実装）
 /// - 指定された buf_ptr に root ディレクトリのファイル名を改行区切りで書き込む
 pub fn readdir(_fd: u64, buf_ptr: u64, buf_len: u64) -> u64 {
-    if buf_ptr == 0 || buf_len == 0 { return EINVAL; }
+    if buf_ptr == 0 || buf_len == 0 {
+        return EINVAL;
+    }
     let mut names = Vec::new();
     for e in crate::init::fs::entries() {
         names.push(e.name.to_string());
@@ -171,38 +196,65 @@ pub fn readdir(_fd: u64, buf_ptr: u64, buf_len: u64) -> u64 {
 
 /// Chdirシステムコール（簡易実装）
 pub fn chdir(path_ptr: u64) -> u64 {
-    if path_ptr == 0 { return EINVAL; }
-    let path = match read_cstring(path_ptr) { Ok(s) => s, Err(e) => return e };
+    if path_ptr == 0 {
+        return EINVAL;
+    }
+    let path = match read_cstring(path_ptr) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
     // initfs はルートのみサポートしているため "/" のみを受け入れる
-    if path == "/" { SUCCESS } else { ENOENT }
+    if path == "/" {
+        SUCCESS
+    } else {
+        ENOENT
+    }
 }
 
 /// Getcwdシステムコール（簡易実装）
 pub fn getcwd(buf_ptr: u64, size: u64) -> u64 {
-    if buf_ptr == 0 || size == 0 { return EINVAL; }
+    if buf_ptr == 0 || size == 0 {
+        return EINVAL;
+    }
     let cwd = b"/\0";
-    if (size as usize) < cwd.len() { return EINVAL; }
-    unsafe { core::ptr::copy_nonoverlapping(cwd.as_ptr(), buf_ptr as *mut u8, cwd.len()); }
+    if (size as usize) < cwd.len() {
+        return EINVAL;
+    }
+    unsafe {
+        core::ptr::copy_nonoverlapping(cwd.as_ptr(), buf_ptr as *mut u8, cwd.len());
+    }
     buf_ptr
 }
 
 /// Read: 開かれたファイルからデータを読み込む簡易実装
 pub fn read(fd: u64, buf_ptr: u64, len: u64) -> u64 {
-    if buf_ptr == 0 { return EFAULT; }
-    if len == 0 { return 0; }
-    if fd < FD_BASE as u64 { return EBADF; }
+    if buf_ptr == 0 {
+        return EFAULT;
+    }
+    if len == 0 {
+        return 0;
+    }
+    if fd < FD_BASE as u64 {
+        return EBADF;
+    }
     let idx = fd as usize;
-    if idx >= MAX_FDS { return EBADF; }
+    if idx >= MAX_FDS {
+        return EBADF;
+    }
     let mut table = FD_TABLE.lock();
     let ptr = table[idx];
-    if ptr == 0 { return EBADF; }
+    if ptr == 0 {
+        return EBADF;
+    }
     // ロックを解放してからユーザーメモリへアクセス
     table[idx] = table[idx];
     drop(table);
 
     let fh = unsafe { &mut *(ptr as *mut FileHandle) };
     let avail = fh.data.len().saturating_sub(fh.pos);
-    if avail == 0 { return 0; }
+    if avail == 0 {
+        return 0;
+    }
     let to_read = core::cmp::min(avail, len as usize);
     unsafe {
         let dst = core::slice::from_raw_parts_mut(buf_ptr as *mut u8, to_read);
@@ -211,4 +263,3 @@ pub fn read(fd: u64, buf_ptr: u64, len: u64) -> u64 {
     fh.pos += to_read;
     to_read as u64
 }
-

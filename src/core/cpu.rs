@@ -2,8 +2,8 @@
 //!
 //! CR0/CR4レジスタの設定、SSE/FPUの有効化など
 
-use core::arch::asm;
 use crate::sprintln;
+use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 static FSGSBASE_SUPPORTED: AtomicBool = AtomicBool::new(false);
@@ -11,7 +11,7 @@ static FSGSBASE_SUPPORTED: AtomicBool = AtomicBool::new(false);
 /// CPUの初期化（SSE/FPU有効化）
 pub fn init() {
     crate::info!("Initializing CPU features...");
-    
+
     unsafe {
         enable_fpu();
         enable_sse();
@@ -23,14 +23,14 @@ unsafe fn enable_fpu() {
     // CR0レジスタを読み取り
     let mut cr0: u64;
     asm!("mov {}, cr0", out(reg) cr0, options(nomem, nostack));
-    
+
     // ビット2 (EM - Emulation) をクリア
     cr0 &= !(1 << 2);
     // ビット1 (MP - Monitor Coprocessor) をセット
     cr0 |= 1 << 1;
     // ビット5 (NE - Numeric Error) をセット
     cr0 |= 1 << 5;
-    
+
     // CR0レジスタに書き込み
     asm!("mov cr0, {}", in(reg) cr0, options(nomem, nostack));
 }
@@ -40,7 +40,7 @@ unsafe fn enable_sse() {
     // CR4レジスタを読み取り
     let mut cr4: u64;
     asm!("mov {}, cr4", out(reg) cr4, options(nomem, nostack));
-    
+
     // ビット9 (OSFXSR) をセット - FXSAVE/FXRSTOR命令のサポート
     cr4 |= 1 << 9;
     // ビット10 (OSXMMEXCPT) をセット - SSE例外のサポート
@@ -54,7 +54,7 @@ unsafe fn enable_sse() {
     } else {
         crate::info!("FSGSBASE not supported, using IA32_FS_BASE MSR");
     }
-    
+
     // CR4レジスタに書き込み
     asm!("mov cr4, {}", in(reg) cr4, options(nomem, nostack));
 }

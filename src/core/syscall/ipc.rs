@@ -15,7 +15,11 @@ pub struct Message {
 
 impl Message {
     const fn empty() -> Self {
-        Self { from: 0, len: 0, data: [0; MAX_MSG_SIZE] }
+        Self {
+            from: 0,
+            len: 0,
+            data: [0; MAX_MSG_SIZE],
+        }
     }
 }
 

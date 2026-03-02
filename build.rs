@@ -5,8 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use builders::{
-    build_apps, build_newlib, build_service, build_user_libs, copy_newlib_libs,
-    create_ext2_image, create_initfs_image, parse_service_index,
+    build_apps, build_newlib, build_service, build_user_libs, copy_newlib_libs, create_ext2_image,
+    create_initfs_image, parse_service_index,
 };
 
 #[allow(unused)]
@@ -19,10 +19,8 @@ fn main() {
 
     for dir in &[&ramfs_dir, &fs_dir] {
         if !dir.is_dir() {
-            fs::create_dir_all(dir).expect(&format!(
-                "Failed to create directory: {}",
-                dir.display()
-            ));
+            fs::create_dir_all(dir)
+                .expect(&format!("Failed to create directory: {}", dir.display()));
         }
     }
 
@@ -56,7 +54,8 @@ fn main() {
     build_user_libs(&user_src_dir, &libc_dir);
 
     // newlibライブラリをramfsとfsにコピー
-    copy_newlib_libs(&libc_dir, &ramfs_dir).expect("cargo:warning=Failed to copy newlib libs to ramfs");
+    copy_newlib_libs(&libc_dir, &ramfs_dir)
+        .expect("cargo:warning=Failed to copy newlib libs to ramfs");
     copy_newlib_libs(&libc_dir, &fs_dir).expect("cargo:warning=Failed to copy newlib libs to fs");
 
     // libgcc_sをramfsにコピー
@@ -70,10 +69,13 @@ fn main() {
             if path != "libgcc_s.so.1" && Path::new(&path).exists() {
                 let dest = ramfs_dir.join("libgcc_s.so.1");
                 let _ = std::fs::copy(&path, &dest);
-                #[cfg(unix)] {
+                #[cfg(unix)]
+                {
                     use std::os::unix::fs::symlink;
                     let link = ramfs_dir.join("libgcc_s.so");
-                    if !link.exists() { let _ = symlink("libgcc_s.so.1", &link); }
+                    if !link.exists() {
+                        let _ = symlink("libgcc_s.so.1", &link);
+                    }
                 }
                 println!("Copied libgcc_s to ramfs: {}", path);
             } else {
@@ -86,10 +88,13 @@ fn main() {
                 for c in &candidates {
                     if Path::new(c).exists() {
                         let _ = std::fs::copy(c, ramfs_dir.join("libgcc_s.so.1"));
-                        #[cfg(unix)] {
+                        #[cfg(unix)]
+                        {
                             use std::os::unix::fs::symlink;
                             let link = ramfs_dir.join("libgcc_s.so");
-                            if !link.exists() { let _ = symlink("libgcc_s.so.1", &link); }
+                            if !link.exists() {
+                                let _ = symlink("libgcc_s.so.1", &link);
+                            }
                         }
                         println!("Copied libgcc_s to ramfs from {}", c);
                         break;
@@ -120,7 +125,10 @@ fn main() {
         };
 
         if let Err(e) = build_service(service, &services_base_dir, output_dir) {
-            println!("cargo:warning=Failed to build service {}: {}", service.name, e);
+            println!(
+                "cargo:warning=Failed to build service {}: {}",
+                service.name, e
+            );
         }
     }
 

@@ -1,7 +1,7 @@
 extern crate alloc;
+use crate::result::{Kernel, Process};
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use crate::result::{Kernel, Process};
 
 /// ELF64ヘッダとプログラムヘッダの定義
 #[repr(C)]
@@ -65,17 +65,17 @@ pub const PT_NULL: u32 = 0;
 pub const PT_LOAD: u32 = 1;
 
 /// ELFヘッダをパースする
-/// 
+///
 /// ## Arguments
 /// - `data`: ELFファイルのバイト列
-/// 
+///
 /// ## Returns
 /// ELFヘッダの構造体。パースに失敗した場合はNone
 pub fn parse_elf_header(data: &[u8]) -> Option<Elf64Ehdr> {
     if data.len() < 64 {
         return None;
     }
-    
+
     // ELFヘッダの最初の16バイトは識別子で、残りは固定サイズのフィールド
     let mut e_ident = [0u8; 16];
     e_ident.copy_from_slice(&data[0..16]);
@@ -119,18 +119,18 @@ pub fn parse_elf_header(data: &[u8]) -> Option<Elf64Ehdr> {
 }
 
 /// プログラムヘッダをパースする
-/// 
+///
 /// ## Arguments
 /// - `data`: ELFファイルのバイト列
 /// - `offset`: プログラムヘッダの開始オフセット
-/// 
+///
 /// ## Returns
 /// プログラムヘッダの構造体。パースに失敗した場合はNone
 pub fn parse_phdr(data: &[u8], offset: usize) -> Option<Elf64Phdr> {
     if data.len() < offset + 56 {
         return None;
     }
-    
+
     let p_type = u32::from_le_bytes(data[offset..offset + 4].try_into().ok()?);
     let p_flags = u32::from_le_bytes(data[offset + 4..offset + 8].try_into().ok()?);
     let p_offset = u64::from_le_bytes(data[offset + 8..offset + 16].try_into().ok()?);
@@ -153,7 +153,7 @@ pub fn parse_phdr(data: &[u8], offset: usize) -> Option<Elf64Phdr> {
 }
 
 /// ロード可能セグメントのリストを取得する
-/// 
+///
 /// ## Arguments
 /// - `data`: ELFファイルのバイト列
 ///
@@ -178,10 +178,10 @@ pub fn list_loadable_segments(data: &[u8]) -> Option<Vec<(u64, u64, u64, u64, u3
 }
 
 /// エントリポイントの仮想アドレスを取得する
-/// 
+///
 /// ## Arguments
 /// - `data`: ELFファイルのバイト列
-/// 
+///
 /// ## Returns
 /// エントリポイントの仮想アドレス。パースに失敗した場合はNone
 pub fn entry_point(data: &[u8]) -> Option<u64> {

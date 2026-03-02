@@ -263,9 +263,11 @@ pub fn exit_current_task(exit_code: u64) -> ! {
             }
 
             crate::sprintln!("switch_to_thread returned unexpectedly; halting.");
-            loop { x86_64::instructions::hlt(); }
+            loop {
+                x86_64::instructions::hlt();
+            }
         }
-        
+
         // スレッドをキューから削除
         remove_thread(current_id);
     }
@@ -320,13 +322,19 @@ pub fn start_scheduling() -> ! {
 
         // 最初のスレッドへ switch_to_thread でジャンプ（戻ってこない）
         // user/kernel どちらも switch_context 経由で正しく動作する
-        unsafe { switch_to_thread(None, first_id); }
+        unsafe {
+            switch_to_thread(None, first_id);
+        }
 
         crate::sprintln!("switch_to_thread returned unexpectedly; halting.");
-        loop { x86_64::instructions::hlt(); }
+        loop {
+            x86_64::instructions::hlt();
+        }
     } else {
         crate::sprintln!("No threads to schedule; halting system.");
-        loop { x86_64::instructions::hlt(); }
+        loop {
+            x86_64::instructions::hlt();
+        }
     }
 }
 

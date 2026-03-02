@@ -4,6 +4,7 @@
 #![allow(unused)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
 
 extern crate alloc;
 
@@ -40,8 +41,8 @@ pub mod util;
 /// CPU機能の初期化
 pub mod cpu;
 
-pub use result::{Kernel, Result};
 pub use kernel::kernel_entry;
+pub use result::{Kernel, Result};
 
 /// デバイス情報
 #[repr(C)]

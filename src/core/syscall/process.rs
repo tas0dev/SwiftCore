@@ -1,7 +1,7 @@
 //! プロセス管理関連のシステムコール
 
-use crate::task::{exit_current_task, current_thread_id};
-use super::types::{SUCCESS, ENOSYS, EINVAL, EFAULT, ENOMEM};
+use super::types::{EFAULT, EINVAL, ENOMEM, ENOSYS, SUCCESS};
+use crate::task::{current_thread_id, exit_current_task};
 
 /// Exitシステムコール
 ///
@@ -27,9 +27,7 @@ pub fn exit(exit_code: u64) -> ! {
 /// プロセスID
 pub fn getpid() -> u64 {
     if let Some(tid) = current_thread_id() {
-        crate::task::with_thread(tid, |thread| {
-            thread.process_id().as_u64()
-        }).unwrap_or(0)
+        crate::task::with_thread(tid, |thread| thread.process_id().as_u64()).unwrap_or(0)
     } else {
         0
     }
@@ -50,7 +48,7 @@ pub fn gettid() -> u64 {
 }
 
 /// Brkシステムコール
-/// 
+///
 /// メモリのヒープ領域サイズを変更する
 pub fn brk(addr: u64) -> u64 {
     // 現在のプロセスIDを取得
@@ -68,13 +66,13 @@ pub fn brk(addr: u64) -> u64 {
     let result = crate::task::with_process_mut(pid, |process| {
         // addr == 0 なら現在の位置を返す
         if addr == 0 {
-             if process.heap_start() == 0 {
-                 // ヒープ領域初期化（暫定）
-                 let default_heap_base = 0x4000_0000;
-                 process.set_heap_start(default_heap_base);
-                 process.set_heap_end(default_heap_base);
-             }
-             return Ok(process.heap_end());
+            if process.heap_start() == 0 {
+                // ヒープ領域初期化（暫定）
+                let default_heap_base = 0x4000_0000;
+                process.set_heap_start(default_heap_base);
+                process.set_heap_end(default_heap_base);
+            }
+            return Ok(process.heap_end());
         }
 
         let current_brk = process.heap_end();
@@ -106,7 +104,7 @@ pub fn brk(addr: u64) -> u64 {
                 size,
                 &[],
                 true,
-                false
+                false,
             ) {
                 return Err(ENOSYS);
             }
@@ -124,11 +122,11 @@ pub fn brk(addr: u64) -> u64 {
 }
 
 /// Forkシステムコール
-/// 
+///
 /// プロセスを複製する
 pub fn fork() -> u64 {
     use crate::syscall::syscall_entry::{
-        SYSCALL_TEMP_USER_RSP, SYSCALL_SAVED_USER_RIP, SYSCALL_SAVED_USER_RFLAGS
+        SYSCALL_SAVED_USER_RFLAGS, SYSCALL_SAVED_USER_RIP, SYSCALL_TEMP_USER_RSP,
     };
     use core::sync::atomic::Ordering;
 
@@ -155,9 +153,8 @@ pub fn fork() -> u64 {
         Some(Some(pt)) => pt,
         _ => return ENOSYS,
     };
-    let (parent_heap_start, parent_heap_end) = crate::task::with_process(parent_pid, |p| {
-        (p.heap_start(), p.heap_end())
-    }).unwrap_or((0, 0));
+    let (parent_heap_start, parent_heap_end) =
+        crate::task::with_process(parent_pid, |p| (p.heap_start(), p.heap_end())).unwrap_or((0, 0));
 
     // 親の FS ベース (TLS) を取得
     let fs_base = unsafe { crate::cpu::read_fs_base() };
@@ -235,7 +232,9 @@ pub fn wait(_pid: u64, status_ptr: u64, options: u64) -> u64 {
     const WNOHANG: u64 = 0x1;
     // status = 0 (terminated normally, exit code 0)
     if status_ptr != 0 {
-        unsafe { *(status_ptr as *mut i32) = 0; }
+        unsafe {
+            *(status_ptr as *mut i32) = 0;
+        }
     }
     if options & WNOHANG != 0 {
         // ノンブロッキング: まだ終了していない (pid=0 = 子プロセス実行中)
@@ -382,7 +381,9 @@ pub fn arch_prctl(code: u64, addr: u64) -> u64 {
     match code {
         ARCH_SET_FS => {
             // FS ベースレジスタを設定 (WRFSBASE または IA32_FS_BASE MSR)
-            unsafe { crate::cpu::write_fs_base(addr); }
+            unsafe {
+                crate::cpu::write_fs_base(addr);
+            }
             // 現在のスレッドに FS base を記録 (コンテキストスイッチ時に復元するため)
             if let Some(tid) = crate::task::current_thread_id() {
                 crate::task::with_thread_mut(tid, |t| t.set_fs_base(addr));
@@ -403,23 +404,23 @@ pub fn arch_prctl(code: u64, addr: u64) -> u64 {
 }
 
 /// FindProcessByNameシステムコール
-/// 
+///
 /// プロセス名からPIDを検索する
-/// 
+///
 /// # 引数
 /// - `name_ptr`: プロセス名のポインタ
 /// - `len`: プロセス名の長さ
-/// 
+///
 /// # 戻り値
 /// 見つかった場合はPID、見つからない場合は0
 pub fn find_process_by_name(name_ptr: u64, len: u64) -> u64 {
     use crate::task;
     use core::str;
-    
+
     if name_ptr == 0 || len == 0 || len > 64 {
         return 0;
     }
-    
+
     // ユーザー空間から名前をコピー（安全のため制限付き）
     // 本来はユーザーメモリチェックが必要
     let name_slice = unsafe { core::slice::from_raw_parts(name_ptr as *const u8, len as usize) };
@@ -427,9 +428,11 @@ pub fn find_process_by_name(name_ptr: u64, len: u64) -> u64 {
         Ok(s) => s,
         Err(_) => return 0,
     };
-    
+
     // プロセスリストを検索
     // TODO: 直接タスク管理モジュールにアクセスするのはリスキーなのでロックをかける
     // taskモジュールに検索関数を追加するのが望ましい
-    task::find_process_id_by_name(name).map(|pid| pid.as_u64()).unwrap_or(0)
+    task::find_process_id_by_name(name)
+        .map(|pid| pid.as_u64())
+        .unwrap_or(0)
 }

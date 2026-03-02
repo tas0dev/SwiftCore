@@ -1,6 +1,6 @@
 use crate::task::ids::ThreadId;
-use crate::task::thread::THREAD_QUEUE;
 use crate::task::process::with_process;
+use crate::task::thread::THREAD_QUEUE;
 
 /// CPU コンテキスト（callee-saved 等を保存）
 #[derive(Debug, Clone, Copy)]
@@ -92,7 +92,6 @@ pub unsafe extern "C" fn switch_context(old_context: *mut Context, new_context: 
         "mov rsi, [rdx + 0x40]", // rsi
         "mov rbp, [rdx + 0x08]", // rbp
         "mov rsp, [rdx + 0x00]", // rsp
-
         // RFLAGSを復元
         "push r11",
         "popfq",
@@ -134,22 +133,23 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
     };
 
     // 次のスレッドのコンテキストへのポインタとカーネルスタックトップを取得
-    let (new_context_ptr, next_kstack_top, next_process_id, next_fs_base) = if let Some(thread) = queue.get(next_id) {
-        let ptr = thread.context() as *const Context;
-        let kstack = thread.kernel_stack_top();
-        let pid = thread.process_id();
-        let fs = thread.fs_base();
-        crate::debug!(
-            "  Next context ptr: {:p}, rsp={:#x}, rip={:#x}, kstack={:#x}",
-            ptr,
-            thread.context().rsp,
-            thread.context().rip,
-            kstack
-        );
-        (ptr, kstack, pid, fs)
-    } else {
-        return; // 次のスレッドが見つからない
-    };
+    let (new_context_ptr, next_kstack_top, next_process_id, next_fs_base) =
+        if let Some(thread) = queue.get(next_id) {
+            let ptr = thread.context() as *const Context;
+            let kstack = thread.kernel_stack_top();
+            let pid = thread.process_id();
+            let fs = thread.fs_base();
+            crate::debug!(
+                "  Next context ptr: {:p}, rsp={:#x}, rip={:#x}, kstack={:#x}",
+                ptr,
+                thread.context().rsp,
+                thread.context().rip,
+                kstack
+            );
+            (ptr, kstack, pid, fs)
+        } else {
+            return; // 次のスレッドが見つからない
+        };
 
     drop(queue);
 
@@ -159,11 +159,14 @@ pub unsafe fn switch_to_thread(current_id: Option<ThreadId>, next_id: ThreadId) 
 
     // 次のスレッドの FS ベースを復元 (TLS)
     if next_fs_base != 0 {
-        unsafe { crate::cpu::write_fs_base(next_fs_base); }
+        unsafe {
+            crate::cpu::write_fs_base(next_fs_base);
+        }
     }
 
     // 次のプロセスのページテーブルに切り替え
-    if let Some(pt_phys) = crate::task::with_process(next_process_id, |p| p.page_table()).flatten() {
+    if let Some(pt_phys) = crate::task::with_process(next_process_id, |p| p.page_table()).flatten()
+    {
         crate::mem::paging::switch_page_table(pt_phys);
     }
 
@@ -176,58 +179,80 @@ pub unsafe fn enter_user_from_kernel(ctx: &Context) -> ! {
     let user_cs = crate::mem::gdt::user_code_selector() as u64;
     let user_ds = crate::mem::gdt::user_data_selector() as u64;
 
-        core::arch::asm!(
-            "cli",
-            "mov rbx, {rbx}",
-            "mov r12, {r12}",
-            "mov r13, {r13}",
-            "mov r14, {r14}",
-            "mov r15, {r15}",
-            "mov rbp, {rbp}",
-            // iretq が CS/RIP/RFLAGS->(RSP/SS) を期待するので順に push
-            "push {ss}",
-            "push {user_rsp}",
-            "push {rflags}",
-            "push {cs}",
-            "push {rip}",
-            // restore user GS base from IA32_KERNEL_GS_BASE
-            "swapgs",
-            "iretq",
-            rbx = in(reg) ctx.rbx,
-            r12 = in(reg) ctx.r12,
-            r13 = in(reg) ctx.r13,
-            r14 = in(reg) ctx.r14,
-            r15 = in(reg) ctx.r15,
-            rbp = in(reg) ctx.rbp,
-            ss = in(reg) user_ds as u64,
-            user_rsp = in(reg) ctx.rsp,
-            rflags = in(reg) ctx.rflags,
-            cs = in(reg) user_cs,
-            rip = in(reg) ctx.rip,
-            options(noreturn)
-        );
+    core::arch::asm!(
+        "cli",
+        "mov rbx, {rbx}",
+        "mov r12, {r12}",
+        "mov r13, {r13}",
+        "mov r14, {r14}",
+        "mov r15, {r15}",
+        "mov rbp, {rbp}",
+        // iretq が CS/RIP/RFLAGS->(RSP/SS) を期待するので順に push
+        "push {ss}",
+        "push {user_rsp}",
+        "push {rflags}",
+        "push {cs}",
+        "push {rip}",
+        // restore user GS base from IA32_KERNEL_GS_BASE
+        "swapgs",
+        "iretq",
+        rbx = in(reg) ctx.rbx,
+        r12 = in(reg) ctx.r12,
+        r13 = in(reg) ctx.r13,
+        r14 = in(reg) ctx.r14,
+        r15 = in(reg) ctx.r15,
+        rbp = in(reg) ctx.rbp,
+        ss = in(reg) user_ds as u64,
+        user_rsp = in(reg) ctx.rsp,
+        rflags = in(reg) ctx.rflags,
+        cs = in(reg) user_cs,
+        rip = in(reg) ctx.rip,
+        options(noreturn)
+    );
 }
 
 /// 割込み内からの切替。呼び出し側で割込み時のレジスタを `saved` に収めて渡す。
-pub unsafe fn switch_to_thread_from_isr(current_id: Option<ThreadId>, next_id: ThreadId, saved: Context) {
-    crate::debug!("switch_to_thread_from_isr: current={:?}, next={:?}", current_id, next_id);
+pub unsafe fn switch_to_thread_from_isr(
+    current_id: Option<ThreadId>,
+    next_id: ThreadId,
+    saved: Context,
+) {
+    crate::debug!(
+        "switch_to_thread_from_isr: current={:?}, next={:?}",
+        current_id,
+        next_id
+    );
 
     let mut queue = THREAD_QUEUE.lock();
 
     let old_ctx_ptr = if let Some(id) = current_id {
-        if let Some(thread) = queue.get_mut(id) { thread.context_mut() as *mut Context } else { return; }
-    } else { unsafe { core::ptr::addr_of_mut!(INITIAL_DUMMY_CONTEXT) } };
+        if let Some(thread) = queue.get_mut(id) {
+            thread.context_mut() as *mut Context
+        } else {
+            return;
+        }
+    } else {
+        unsafe { core::ptr::addr_of_mut!(INITIAL_DUMMY_CONTEXT) }
+    };
 
-    let (new_ctx_ptr, next_priv, next_kstack_top, next_fs_base, next_process_id) = if let Some(thread) = queue.get(next_id) {
-        let ptr = thread.context() as *const Context;
-        let proc = thread.process_id();
-        let priv_level = crate::task::with_process(proc, |p| p.privilege()).unwrap_or(crate::task::PrivilegeLevel::Core);
-        let kstack = thread.kernel_stack_top();
-        let fs = thread.fs_base();
-        (ptr, priv_level, kstack, fs, proc)
-    } else { return; };
+    let (new_ctx_ptr, next_priv, next_kstack_top, next_fs_base, next_process_id) =
+        if let Some(thread) = queue.get(next_id) {
+            let ptr = thread.context() as *const Context;
+            let proc = thread.process_id();
+            let priv_level = crate::task::with_process(proc, |p| p.privilege())
+                .unwrap_or(crate::task::PrivilegeLevel::Core);
+            let kstack = thread.kernel_stack_top();
+            let fs = thread.fs_base();
+            (ptr, priv_level, kstack, fs, proc)
+        } else {
+            return;
+        };
 
-    if !old_ctx_ptr.is_null() { unsafe { *old_ctx_ptr = saved; } }
+    if !old_ctx_ptr.is_null() {
+        unsafe {
+            *old_ctx_ptr = saved;
+        }
+    }
 
     drop(queue);
 
@@ -243,7 +268,8 @@ pub unsafe fn switch_to_thread_from_isr(current_id: Option<ThreadId>, next_id: T
     }
 
     // 次のプロセスのページテーブルに切り替え
-    if let Some(pt_phys) = crate::task::with_process(next_process_id, |p| p.page_table()).flatten() {
+    if let Some(pt_phys) = crate::task::with_process(next_process_id, |p| p.page_table()).flatten()
+    {
         crate::mem::paging::switch_page_table(pt_phys);
     }
 
@@ -332,12 +358,20 @@ pub unsafe fn switch_to_thread_from_isr(current_id: Option<ThreadId>, next_id: T
             // Check page table translation for user RIP and RSP
             use x86_64::VirtAddr;
             if let Some(code_phys) = crate::mem::paging::translate_addr(VirtAddr::new(saved.rip)) {
-                crate::info!("user RIP {:#x} -> phys {:#x}", saved.rip, code_phys.as_u64());
+                crate::info!(
+                    "user RIP {:#x} -> phys {:#x}",
+                    saved.rip,
+                    code_phys.as_u64()
+                );
             } else {
                 crate::info!("user RIP {:#x} not mapped", saved.rip);
             }
             if let Some(stack_phys) = crate::mem::paging::translate_addr(VirtAddr::new(saved.rsp)) {
-                crate::info!("user RSP {:#x} -> phys {:#x}", saved.rsp, stack_phys.as_u64());
+                crate::info!(
+                    "user RSP {:#x} -> phys {:#x}",
+                    saved.rsp,
+                    stack_phys.as_u64()
+                );
             } else {
                 crate::info!("user RSP {:#x} not mapped", saved.rsp);
             }
@@ -347,7 +381,13 @@ pub unsafe fn switch_to_thread_from_isr(current_id: Option<ThreadId>, next_id: T
             let ds_sel = user_ds as u16;
             let cs_index = (cs_sel >> 3) as usize;
             let ds_index = (ds_sel >> 3) as usize;
-            crate::info!("user selectors: cs={:#x} (idx={}), ds={:#x} (idx={})", cs_sel, cs_index, ds_sel, ds_index);
+            crate::info!(
+                "user selectors: cs={:#x} (idx={}), ds={:#x} (idx={})",
+                cs_sel,
+                cs_index,
+                ds_sel,
+                ds_index
+            );
 
             // Read descriptor bytes for those indices if available
             let mut dump_descriptor = |idx: usize| {
@@ -394,8 +434,8 @@ pub unsafe fn switch_to_thread_from_isr(current_id: Option<ThreadId>, next_id: T
                 let hi = addr >> 47;
                 hi == 0 || hi == 0x1ffff
             };
-            crate::info!("user RIP canonical={}" , check_canonical(saved.rip));
-            crate::info!("user RSP canonical={}" , check_canonical(saved.rsp));
+            crate::info!("user RIP canonical={}", check_canonical(saved.rip));
+            crate::info!("user RSP canonical={}", check_canonical(saved.rsp));
 
             // If mapped, dump a few bytes from code and stack (protect against unmapped)
             if crate::mem::paging::translate_addr(VirtAddr::new(saved.rip)).is_some() {

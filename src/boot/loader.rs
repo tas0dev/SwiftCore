@@ -3,12 +3,12 @@
 
 extern crate alloc;
 
+use core::alloc::{GlobalAlloc, Layout};
+use core::sync::atomic::{AtomicBool, Ordering};
+use linked_list_allocator::LockedHeap;
 use swiftcore::{kernel_entry, BootInfo, MemoryRegion, MemoryType};
 use uefi::prelude::*;
 use uefi::proto::console::gop::GraphicsOutput;
-use linked_list_allocator::LockedHeap;
-use core::sync::atomic::{AtomicBool, Ordering};
-use core::alloc::{GlobalAlloc, Layout};
 
 /// ブートローダーとカーネルの両方で使用するグローバルアロケータ
 struct BootAllocator {
@@ -21,17 +21,17 @@ struct BootAllocator {
 unsafe impl GlobalAlloc for BootAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if self.use_kernel.load(Ordering::Relaxed) {
-             self.kernel.alloc(layout)
+            self.kernel.alloc(layout)
         } else {
-             uefi::allocator::Allocator.alloc(layout)
+            uefi::allocator::Allocator.alloc(layout)
         }
     }
-    
+
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if self.use_kernel.load(Ordering::Relaxed) {
-             self.kernel.dealloc(ptr, layout)
+            self.kernel.dealloc(ptr, layout)
         } else {
-             uefi::allocator::Allocator.dealloc(ptr, layout)
+            uefi::allocator::Allocator.dealloc(ptr, layout)
         }
     }
 }
@@ -74,7 +74,7 @@ unsafe fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> St
     let _ = system_table
         .stdout()
         .output_string(cstr16!("sBoot start.\n"));
-    
+
     // フレームバッファの情報を取得
     let _ = system_table
         .stdout()
@@ -110,7 +110,7 @@ unsafe fn main(_image_handle: Handle, mut system_table: SystemTable<Boot>) -> St
     let _ = system_table
         .stdout()
         .output_string(cstr16!("Framebuffer info obtained.\n"));
-    
+
     // Boot Servicesを終了してメモリマップを取得
     let _ = system_table
         .stdout()

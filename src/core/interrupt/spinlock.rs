@@ -22,10 +22,10 @@ unsafe impl<T: Send> Send for SpinLock<T> {}
 
 impl<T> SpinLock<T> {
     /// 新しいスピンロックを作成
-    /// 
+    ///
     /// ## Arguments
     /// - `data`: ロックで保護されるデータ
-    /// 
+    ///
     /// ## Returns
     /// - `SpinLock<T>`: 新しいスピンロックインスタンス
     pub const fn new(data: T) -> Self {
@@ -39,10 +39,10 @@ impl<T> SpinLock<T> {
     ///
     /// ロック取得時に割込みフラグの状態を保存し、
     /// 割込みを無効化する
-    /// 
+    ///
     /// ## Arguments
     /// - `&self`: スピンロックの参照
-    /// 
+    ///
     /// ## Returns
     /// - `SpinLockGuard<'_, T>`: ロックガード。ドロップ時にロックを解放し、割込み状態を復元する
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
@@ -73,10 +73,10 @@ impl<T> SpinLock<T> {
     /// ロックを試行（割込みを無効化）
     ///
     /// ロックが既に取得されている場合はNoneを返す
-    /// 
+    ///
     /// ## Arguments
     /// - `&self`: スピンロックの参照
-    /// 
+    ///
     /// ## Returns
     /// - `Option<SpinLockGuard<'_, T>>`: ロックガード。ロックが取得できた場合はSome、そうでない場合はNone
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T>> {
@@ -105,10 +105,10 @@ impl<T> SpinLock<T> {
     /// 内部データへの可変参照を取得（unsafe）
     ///
     /// 呼び出し側は、他のスレッドがデータにアクセスしていないことを保証する必要がある
-    /// 
+    ///
     /// ## Arguments
     /// - `&self`: スピンロックの参照
-    /// 
+    ///
     /// ## Returns
     /// - `&mut T`: 内部データへの可変参照
     pub unsafe fn force_unlock(&self) {
@@ -119,7 +119,7 @@ impl<T> SpinLock<T> {
 /// スピンロックガード
 ///
 /// ドロップ時に自動的にロックを解放し、割込み状態を復元する
-/// 
+///
 /// ## Lifetime Parameters
 /// - `'a`: スピンロックのライフタイム
 pub struct SpinLockGuard<'a, T> {

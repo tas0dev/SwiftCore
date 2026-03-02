@@ -61,13 +61,8 @@ pub fn copy_newlib_libs(libc_dir: &Path, dest_dir: &Path) -> Result<(), String> 
     // crt0.oをコピー
     let crt0_src = libc_dir.join("crt0.o");
     let crt0_dest = dest_dir.join("crt0.o");
-    fs::copy(&crt0_src, &crt0_dest).map_err(|e| {
-        format!(
-            "Failed to copy crt0.o to {}: {}",
-            dest_dir.display(),
-            e
-        )
-    })?;
+    fs::copy(&crt0_src, &crt0_dest)
+        .map_err(|e| format!("Failed to copy crt0.o to {}: {}", dest_dir.display(), e))?;
     println!("Copied crt0.o to {}", dest_dir.display());
 
     // ライブラリをコピー
@@ -83,7 +78,12 @@ pub fn copy_newlib_libs(libc_dir: &Path, dest_dir: &Path) -> Result<(), String> 
                 e
             )
         })?;
-        println!("Copied {} to {} (from {})", lib, dest_dir.display(), src.display());
+        println!(
+            "Copied {} to {} (from {})",
+            lib,
+            dest_dir.display(),
+            src.display()
+        );
     }
 
     Ok(())
