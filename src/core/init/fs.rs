@@ -179,6 +179,10 @@ fn inode(image: &[u8], sb: Superblock, inode_num: u32) -> Option<Inode> {
     if inode_num == 0 {
         return None;
     }
+    // inodes_per_group が 0 なら除算パニックを防ぐ (#30)
+    if sb.inodes_per_group == 0 {
+        return None;
+    }
     let group = (inode_num - 1) / sb.inodes_per_group;
     let index = (inode_num - 1) % sb.inodes_per_group;
     let gd = group_desc(image, sb, group)?;
@@ -216,6 +220,10 @@ fn data_block_number(
     inode: Inode,
     block_index: usize,
 ) -> Option<u32> {
+    // block_size が 0 なら除算パニックを防ぐ
+    if sb.block_size == 0 {
+        return None;
+    }
     let entries_per_block = sb.block_size as usize / 4;
 
     // 直接ブロック (0-11)
