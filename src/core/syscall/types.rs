@@ -108,4 +108,3 @@ pub const ENODATA: u64 = (-61i64) as u64;
 pub const EAGAIN: u64 = (-11i64) as u64;
 /// メモリ不足
 pub const ENOMEM: u64 = (-12i64) as u64;
-

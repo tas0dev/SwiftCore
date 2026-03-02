@@ -244,7 +244,8 @@ impl ProcessTable {
         // 名前比較（簡易実装: 完全一致のみ考慮）
         // 注: Processの名前に .service などの拡張子を含む場合があるため
         // ここでは前方一致などで緩和するのも手だが、厳密には完全一致で。
-        self.processes.iter()
+        self.processes
+            .iter()
             .filter_map(|slot| slot.as_ref())
             .find(|p| p.name() == name || (p.name().len() > 0 && p.name() == name))
     }
