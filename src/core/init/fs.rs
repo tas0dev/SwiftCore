@@ -277,8 +277,13 @@ fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<Vec<u
     for block_idx in 0..blocks_needed {
         let block_num = data_block_number(image, sb, inode, block_idx)?;
         if block_num == 0 {
-            crate::warn!("Block {} is zero for inode {}", block_idx, inode_num);
-            return None;
+            // スパースファイルのホール: ゼロで埋めて続行
+            let to_fill = core::cmp::min(sb.block_size as usize, size - buf.len());
+            buf.extend(core::iter::repeat(0u8).take(to_fill));
+            if buf.len() >= size {
+                break;
+            }
+            continue;
         }
         let block = block_slice(image, sb.block_size, block_num)?;
         let to_copy = core::cmp::min(block.len(), size - buf.len());
