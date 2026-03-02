@@ -18,8 +18,8 @@ pub struct ServiceEntry {
 
 /// index.tomlを解析してサービス情報を取得
 pub fn parse_service_index(index_path: &Path) -> Result<Vec<ServiceEntry>, String> {
-    let content = fs::read_to_string(index_path)
-        .map_err(|e| format!("Failed to read index.toml: {}", e))?;
+    let content =
+        fs::read_to_string(index_path).map_err(|e| format!("Failed to read index.toml: {}", e))?;
 
     // 簡易的なTOML解析（tomlクレートを使わずに）
     let mut services = Vec::new();
@@ -56,7 +56,7 @@ pub fn parse_service_index(index_path: &Path) -> Result<Vec<ServiceEntry>, Strin
                 let end = line.len() - 1;
                 current_service = line[start..end].to_string();
             }
-            
+
             current_dir.clear();
             current_fs.clear();
             current_desc.clear();
@@ -83,15 +83,9 @@ pub fn parse_service_index(index_path: &Path) -> Result<Vec<ServiceEntry>, Strin
                 .trim_matches('\'')
                 .to_string();
         } else if line.starts_with("autostart = ") {
-            current_autostart = line["autostart = ".len()..]
-                .trim()
-                .parse()
-                .unwrap_or(false);
+            current_autostart = line["autostart = ".len()..].trim().parse().unwrap_or(false);
         } else if line.starts_with("order = ") {
-            current_order = line["order = ".len()..]
-                .trim()
-                .parse()
-                .unwrap_or(999);
+            current_order = line["order = ".len()..].trim().parse().unwrap_or(999);
         }
     }
 
@@ -130,13 +124,13 @@ pub fn build_service(
 
     let cargo_toml = service_dir.join("Cargo.toml");
     if !cargo_toml.exists() {
-        return Err(format!(
-            "Cargo.toml not found for service {}",
-            service.name
-        ));
+        return Err(format!("Cargo.toml not found for service {}", service.name));
     }
 
-    println!("Building service: {} ({})", service.name, service.description);
+    println!(
+        "Building service: {} ({})",
+        service.name, service.description
+    );
 
     // ソースファイルを監視
     println!("cargo:rerun-if-changed={}", cargo_toml.display());
@@ -158,9 +152,16 @@ pub fn build_service(
     // 外側の cargo ビルドの環境変数をクリア (干渉を防ぐ)
     // ジョブサーバーとビルドシステムの変数をクリアして独立したビルドにする
     for key in &[
-        "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_TARGET_DIR",
-        "CARGO_BUILD_TARGET", "CARGO_MAKEFLAGS", "__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS",
-        "CARGO_BUILD_RUSTC", "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER",
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_TARGET_DIR",
+        "CARGO_BUILD_TARGET",
+        "CARGO_MAKEFLAGS",
+        "__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS",
+        "CARGO_BUILD_RUSTC",
+        "RUSTC",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
     ] {
         cmd.env_remove(key);
     }
@@ -204,8 +205,10 @@ pub fn build_service(
         } else {
             &stdout
         };
-        return Err(format!("Failed to build service {}: status={} STDERR={} STDOUT={}", 
-            service.name, output.status, err_tail, out_tail));
+        return Err(format!(
+            "Failed to build service {}: status={} STDERR={} STDOUT={}",
+            service.name, output.status, err_tail, out_tail
+        ));
     }
 
     // ビルド成果物を探してコピー
@@ -221,13 +224,8 @@ pub fn build_service(
         let dest_name = format!("{}.service", service.name);
         let dest = output_dir.join(&dest_name);
 
-        fs::copy(&binary_path, &dest).map_err(|e| {
-            format!(
-                "Failed to copy service binary to {}: {}",
-                dest.display(),
-                e
-            )
-        })?;
+        fs::copy(&binary_path, &dest)
+            .map_err(|e| format!("Failed to copy service binary to {}: {}", dest.display(), e))?;
 
         println!(
             "Copied {} to {} (from {})",
@@ -236,7 +234,10 @@ pub fn build_service(
             binary_path.display()
         );
     } else {
-        return Err(format!("Built binary not found for service {}", service.name));
+        return Err(format!(
+            "Built binary not found for service {}",
+            service.name
+        ));
     }
 
     Ok(())

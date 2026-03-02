@@ -1,7 +1,7 @@
 use crate::elf::loader as elf_loader;
-use alloc::vec::Vec;
-use alloc::vec;
 use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::convert::TryInto;
 
 /// カーネル内から実行可能ファイルを読み込み実行するシステムコール
@@ -47,7 +47,11 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         let new_pt_phys = match crate::mem::paging::create_user_page_table() {
             Ok(phys) => phys,
             Err(e) => {
-                crate::warn!("Failed to create user page table for {}: {:?}", process_name, e);
+                crate::warn!(
+                    "Failed to create user page table for {}: {:?}",
+                    process_name,
+                    e
+                );
                 return crate::syscall::types::EINVAL;
             }
         };
@@ -69,10 +73,24 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                         let writable = (flags & 0x2) != 0;
                         let executable = (flags & 0x1) != 0;
 
-                        crate::debug!("Mapping seg {} -> {:#x} (filesz={}, memsz={})", i, vaddr, filesz, memsz);
+                        crate::debug!(
+                            "Mapping seg {} -> {:#x} (filesz={}, memsz={})",
+                            i,
+                            vaddr,
+                            filesz,
+                            memsz
+                        );
                         let seg_src = &data[src_off..src_off + filesz as usize];
 
-                        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, vaddr, filesz, memsz, seg_src, writable, executable) {
+                        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(
+                            new_pt_phys,
+                            vaddr,
+                            filesz,
+                            memsz,
+                            seg_src,
+                            writable,
+                            executable,
+                        ) {
                             crate::warn!("Failed to map segment: {:?}", e);
                             return crate::syscall::types::EINVAL;
                         }
@@ -81,7 +99,6 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
             }
         }
 
-        
         let mut sinit_addr: Option<u64> = None;
         if let Some(eh_sym) = elf_loader::parse_elf_header(data) {
             let shoff = eh_sym.e_shoff as usize;
@@ -95,26 +112,43 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                 let mut strtab_size: usize = 0;
                 for si in 0..shnum {
                     let sh_off = shoff + si * shentsz;
-                    if sh_off + shentsz > data.len() { break; }
+                    if sh_off + shentsz > data.len() {
+                        break;
+                    }
                     let sh_type = match data[sh_off + 4..sh_off + 8].try_into() {
                         Ok(b) => u32::from_le_bytes(b),
-                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                        Err(_) => {
+                            crate::warn!("ELF section header truncated");
+                            return crate::syscall::types::EINVAL;
+                        }
                     };
                     let sh_offset = match data[sh_off + 24..sh_off + 32].try_into() {
                         Ok(b) => u64::from_le_bytes(b) as usize,
-                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                        Err(_) => {
+                            crate::warn!("ELF section header truncated");
+                            return crate::syscall::types::EINVAL;
+                        }
                     };
                     let sh_size = match data[sh_off + 32..sh_off + 40].try_into() {
                         Ok(b) => u64::from_le_bytes(b) as usize,
-                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                        Err(_) => {
+                            crate::warn!("ELF section header truncated");
+                            return crate::syscall::types::EINVAL;
+                        }
                     };
                     let sh_link = match data[sh_off + 40..sh_off + 44].try_into() {
                         Ok(b) => u32::from_le_bytes(b),
-                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                        Err(_) => {
+                            crate::warn!("ELF section header truncated");
+                            return crate::syscall::types::EINVAL;
+                        }
                     };
                     let sh_entsize = match data[sh_off + 56..sh_off + 64].try_into() {
                         Ok(b) => u64::from_le_bytes(b) as usize,
-                        Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                        Err(_) => {
+                            crate::warn!("ELF section header truncated");
+                            return crate::syscall::types::EINVAL;
+                        }
                     };
 
                     // SHT_SYMTAB == 2
@@ -126,15 +160,22 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                         let link_idx = sh_link as usize;
                         if link_idx < shnum {
                             let link_sh_off = shoff + link_idx * shentsz;
-                            strtab_offset = match data[link_sh_off + 24..link_sh_off + 32].try_into() {
+                            strtab_offset =
+                                match data[link_sh_off + 24..link_sh_off + 32].try_into() {
+                                    Ok(b) => u64::from_le_bytes(b) as usize,
+                                    Err(_) => {
+                                        crate::warn!("ELF section header truncated");
+                                        return crate::syscall::types::EINVAL;
+                                    }
+                                };
+                            strtab_size = match data[link_sh_off + 32..link_sh_off + 40].try_into()
+                            {
                                 Ok(b) => u64::from_le_bytes(b) as usize,
-                                Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
+                                Err(_) => {
+                                    crate::warn!("ELF section header truncated");
+                                    return crate::syscall::types::EINVAL;
+                                }
                             };
-                            strtab_size = match data[link_sh_off + 32..link_sh_off + 40].try_into() {
-                                Ok(b) => u64::from_le_bytes(b) as usize,
-                                Err(_) => { crate::warn!("ELF section header truncated"); return crate::syscall::types::EINVAL; }
-                            };
-
                         }
                         break;
                     }
@@ -143,23 +184,34 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                     let nsyms = symtab_size / symtab_entsize;
                     for i_sym in 0..nsyms {
                         let sym_off = symtab_offset + i_sym * symtab_entsize;
-                        if sym_off + symtab_entsize > data.len() { break; }
-                        let st_name = match data[sym_off..sym_off+4].try_into() {
+                        if sym_off + symtab_entsize > data.len() {
+                            break;
+                        }
+                        let st_name = match data[sym_off..sym_off + 4].try_into() {
                             Ok(b) => u32::from_le_bytes(b) as usize,
-                            Err(_) => { crate::warn!("ELF symbol entry truncated"); break; }
+                            Err(_) => {
+                                crate::warn!("ELF symbol entry truncated");
+                                break;
+                            }
                         };
-                        let st_value = match data[sym_off+8..sym_off+16].try_into() {
+                        let st_value = match data[sym_off + 8..sym_off + 16].try_into() {
                             Ok(b) => u64::from_le_bytes(b),
-                            Err(_) => { crate::warn!("ELF symbol entry truncated"); break; }
+                            Err(_) => {
+                                crate::warn!("ELF symbol entry truncated");
+                                break;
+                            }
                         };
 
                         if st_name < strtab_size {
                             let name_off = strtab_offset + st_name;
                             if name_off < data.len() {
                                 let mut end = name_off;
-                                while end < data.len() && data[end] != 0 { end += 1; }
+                                while end < data.len() && data[end] != 0 {
+                                    end += 1;
+                                }
                                 if end <= data.len() {
-                                    if let Ok(name_str) = core::str::from_utf8(&data[name_off..end]) {
+                                    if let Ok(name_str) = core::str::from_utf8(&data[name_off..end])
+                                    {
                                         if name_str == "__sinit" {
                                             sinit_addr = Some(st_value);
                                             break;
@@ -261,19 +313,40 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
             return crate::syscall::types::EINVAL;
         }
 
-        crate::debug!("Allocating user stack: base={:#x}, top={:#x}, size={} pages, rsp={:#x}",
-                      stack_base_vaddr, stack_end_vaddr, stack_size_pages, initial_rsp);
+        crate::debug!(
+            "Allocating user stack: base={:#x}, top={:#x}, size={} pages, rsp={:#x}",
+            stack_base_vaddr,
+            stack_end_vaddr,
+            stack_size_pages,
+            initial_rsp
+        );
 
         // Map the lower 7 pages as zero-filled (writable, non-executable stack)
-        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true, false) {
-             crate::warn!("Failed to allocate user stack lower: {:?}", e);
-             return crate::syscall::types::EINVAL;
+        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(
+            new_pt_phys,
+            stack_base_vaddr,
+            0,
+            (stack_size_pages - 1) as u64 * 4096,
+            &[],
+            true,
+            false,
+        ) {
+            crate::warn!("Failed to allocate user stack lower: {:?}", e);
+            return crate::syscall::types::EINVAL;
         }
         // Map the top page with args (writable, non-executable stack)
         let top_page_vaddr = stack_end_vaddr - 4096;
-        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, top_page_vaddr, 4096, 4096, &page_data, true, false) {
-             crate::warn!("Failed to allocate user stack top: {:?}", e);
-             return crate::syscall::types::EINVAL;
+        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(
+            new_pt_phys,
+            top_page_vaddr,
+            4096,
+            4096,
+            &page_data,
+            true,
+            false,
+        ) {
+            crate::warn!("Failed to allocate user stack top: {:?}", e);
+            return crate::syscall::types::EINVAL;
         }
 
         crate::debug!("User stack allocated successfully");
@@ -282,30 +355,65 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         // Map two pages at the default heap base so small early allocations won't fault.
         let default_heap_base: u64 = 0x4000_0000;
         let heap_map_size: u64 = 4096 * 2;
-        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, default_heap_base, 0, heap_map_size, &[], true, false) {
-            crate::warn!("Failed to pre-map initial heap pages at {:#x}: {:?}", default_heap_base, e);
+        if let Err(e) = crate::mem::paging::map_and_copy_segment_to(
+            new_pt_phys,
+            default_heap_base,
+            0,
+            heap_map_size,
+            &[],
+            true,
+            false,
+        ) {
+            crate::warn!(
+                "Failed to pre-map initial heap pages at {:#x}: {:?}",
+                default_heap_base,
+                e
+            );
         } else {
-            crate::info!("Pre-mapped {} bytes for heap at {:#x} for {}", heap_map_size, default_heap_base, process_name);
+            crate::info!(
+                "Pre-mapped {} bytes for heap at {:#x} for {}",
+                heap_map_size,
+                default_heap_base,
+                process_name
+            );
         }
 
         // __sinitがあれば、スタブを作成して先に呼び出す
         if let Some(sinit) = sinit_addr {
             let stub_addr: u64 = default_heap_base + heap_map_size;
-            crate::info!("Found __sinit at {:#x}, mapping init stub at {:#x}", sinit, stub_addr);
+            crate::info!(
+                "Found __sinit at {:#x}, mapping init stub at {:#x}",
+                sinit,
+                stub_addr
+            );
             let mut stub_page = vec![0u8; 4096];
             let mut cur = 0usize;
             // movabs rax, <sinit>
-            stub_page[cur..cur+2].copy_from_slice(&[0x48, 0xB8]); cur += 2;
-            stub_page[cur..cur+8].copy_from_slice(&sinit.to_le_bytes()); cur += 8;
+            stub_page[cur..cur + 2].copy_from_slice(&[0x48, 0xB8]);
+            cur += 2;
+            stub_page[cur..cur + 8].copy_from_slice(&sinit.to_le_bytes());
+            cur += 8;
             // call rax
-            stub_page[cur..cur+2].copy_from_slice(&[0xFF, 0xD0]); cur += 2;
+            stub_page[cur..cur + 2].copy_from_slice(&[0xFF, 0xD0]);
+            cur += 2;
             // movabs rax, <entry>
-            stub_page[cur..cur+2].copy_from_slice(&[0x48, 0xB8]); cur += 2;
-            stub_page[cur..cur+8].copy_from_slice(&entry.to_le_bytes()); cur += 8;
+            stub_page[cur..cur + 2].copy_from_slice(&[0x48, 0xB8]);
+            cur += 2;
+            stub_page[cur..cur + 8].copy_from_slice(&entry.to_le_bytes());
+            cur += 8;
             // jmp rax
-            stub_page[cur..cur+2].copy_from_slice(&[0xFF, 0xE0]); cur += 2;
+            stub_page[cur..cur + 2].copy_from_slice(&[0xFF, 0xE0]);
+            cur += 2;
 
-            if let Err(e) = crate::mem::paging::map_and_copy_segment_to(new_pt_phys, stub_addr, cur as u64, 4096, &stub_page[0..cur], false, true) {
+            if let Err(e) = crate::mem::paging::map_and_copy_segment_to(
+                new_pt_phys,
+                stub_addr,
+                cur as u64,
+                4096,
+                &stub_page[0..cur],
+                false,
+                true,
+            ) {
                 crate::warn!("Failed to map __sinit stub at {:#x}: {:?}", stub_addr, e);
             } else {
                 // jump to stub first
@@ -314,7 +422,8 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         }
 
         // プロセスを作成してページテーブルをセット
-        let mut proc = crate::task::Process::new(process_name, crate::task::PrivilegeLevel::User, None, 0);
+        let mut proc =
+            crate::task::Process::new(process_name, crate::task::PrivilegeLevel::User, None, 0);
         proc.set_page_table(new_pt_phys);
         let pid = proc.id();
         if crate::task::add_process(proc).is_none() {
@@ -339,17 +448,27 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
             entry,
             initial_rsp,
             kstack,
-            KERNEL_THREAD_STACK_SIZE
+            KERNEL_THREAD_STACK_SIZE,
         );
 
-        crate::info!("exec: loaded '{}', entry={:#x}, pid={:?}", process_name, entry, pid);
+        crate::info!(
+            "exec: loaded '{}', entry={:#x}, pid={:?}",
+            process_name,
+            entry,
+            pid
+        );
 
         if crate::task::add_thread(thread).is_none() {
             crate::warn!("Failed to add thread");
             return crate::syscall::types::EINVAL;
         }
 
-        crate::debug!("exec: created usermode process '{}' (pid={:?}, entry={:#x})", process_name, pid, entry);
+        crate::debug!(
+            "exec: created usermode process '{}' (pid={:?}, entry={:#x})",
+            process_name,
+            pid,
+            entry
+        );
 
         return pid.as_u64();
     }
@@ -418,10 +537,16 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
             let off_hdr = phoff + i * phentsz;
             if let Some(ph) = crate::elf::loader::parse_phdr(data, off_hdr) {
                 if ph.p_type == crate::elf::loader::PT_LOAD {
-                    let seg_src = &data[ph.p_offset as usize..ph.p_offset as usize + ph.p_filesz as usize];
+                    let seg_src =
+                        &data[ph.p_offset as usize..ph.p_offset as usize + ph.p_filesz as usize];
                     if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
-                        new_pt_phys, ph.p_vaddr, ph.p_filesz, ph.p_memsz,
-                        seg_src, (ph.p_flags & 0x2) != 0, (ph.p_flags & 0x1) != 0,
+                        new_pt_phys,
+                        ph.p_vaddr,
+                        ph.p_filesz,
+                        ph.p_memsz,
+                        seg_src,
+                        (ph.p_flags & 0x2) != 0,
+                        (ph.p_flags & 0x1) != 0,
                     ) {
                         return EINVAL;
                     }
@@ -448,7 +573,9 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
     let total_data_needed = string_area_len + pointers_bytes;
     let padding_len = (16 - (total_data_needed % 16)) % 16;
     let total_size = total_data_needed + padding_len;
-    if total_size > 4096 { return EINVAL; }
+    if total_size > 4096 {
+        return EINVAL;
+    }
     let string_area_base = stack_end_vaddr - string_area_len as u64;
     let initial_rsp = stack_end_vaddr - total_size as u64;
 
@@ -472,12 +599,28 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
     }
 
     if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
-        new_pt_phys, stack_base_vaddr, 0, (stack_size_pages - 1) as u64 * 4096, &[], true, false,
-    ) { return EINVAL; }
+        new_pt_phys,
+        stack_base_vaddr,
+        0,
+        (stack_size_pages - 1) as u64 * 4096,
+        &[],
+        true,
+        false,
+    ) {
+        return EINVAL;
+    }
     let top_page_vaddr = stack_end_vaddr - 4096;
     if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
-        new_pt_phys, top_page_vaddr, 4096, 4096, &page_data, true, false,
-    ) { return EINVAL; }
+        new_pt_phys,
+        top_page_vaddr,
+        4096,
+        4096,
+        &page_data,
+        true,
+        false,
+    ) {
+        return EINVAL;
+    }
 
     // 現在のプロセスのページテーブルとヒープを更新
     let current_tid = match crate::task::current_thread_id() {

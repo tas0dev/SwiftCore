@@ -1,6 +1,6 @@
 //! 時間関連システムコール
 
-use super::types::{SUCCESS, EINVAL};
+use super::types::{EINVAL, SUCCESS};
 
 /// GetTicksシステムコール
 ///
@@ -71,4 +71,3 @@ pub fn sleep_until(ticks: u64) -> u64 {
     }
     0
 }
-
