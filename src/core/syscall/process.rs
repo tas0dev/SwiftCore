@@ -1,6 +1,9 @@
 //! プロセス管理関連のシステムコール
 
 use super::types::{EFAULT, EINVAL, ENOMEM, ENOSYS, SUCCESS};
+
+/// ユーザー空間の上限アドレス (x86-64 canonical hole 下側)
+const USER_SPACE_END: u64 = 0x0000_7FFF_FFFF_FFFF;
 use crate::task::{current_thread_id, exit_current_task};
 
 /// Exitシステムコール
@@ -76,6 +79,11 @@ pub fn brk(addr: u64) -> u64 {
         }
 
         let current_brk = process.heap_end();
+
+        // ユーザー空間の上限アドレスを超えるbrkを拒否
+        if addr > USER_SPACE_END {
+            return Err(EINVAL);
+        }
 
         // 縮小または変化なし
         if addr <= current_brk {
@@ -232,6 +240,10 @@ pub fn wait(_pid: u64, status_ptr: u64, options: u64) -> u64 {
     const WNOHANG: u64 = 0x1;
     // status = 0 (terminated normally, exit code 0)
     if status_ptr != 0 {
+        // ユーザー空間アドレスの有効性を検証する
+        if !super::validate_user_ptr(status_ptr, 4) {
+            return EFAULT;
+        }
         unsafe {
             *(status_ptr as *mut i32) = 0;
         }
@@ -290,6 +302,11 @@ pub fn mmap(addr: u64, length: u64, _prot: u64, flags: u64, _fd: u64) -> u64 {
             let default_heap_base = 0x5000_0000u64;
             process.set_heap_start(default_heap_base);
             process.set_heap_end(default_heap_base);
+        }
+
+        // ユーザー空間の上限アドレスを超えるaddrを拒否
+        if addr != 0 && addr > USER_SPACE_END {
+            return Err(EINVAL);
         }
 
         let map_start = if addr != 0 {
@@ -355,6 +372,10 @@ pub fn futex(uaddr: u64, op: u32, val: u64, _timeout: u64) -> u64 {
             if uaddr == 0 {
                 return EFAULT;
             }
+            // ユーザー空間アドレスの有効性を検証する
+            if !super::validate_user_ptr(uaddr, 4) {
+                return EFAULT;
+            }
             let current_val = unsafe { core::ptr::read_volatile(uaddr as *const u32) };
             if current_val != val as u32 {
                 return EAGAIN;
@@ -396,6 +417,10 @@ pub fn arch_prctl(code: u64, addr: u64) -> u64 {
             if addr == 0 {
                 return EFAULT;
             }
+            // ユーザー空間アドレスの有効性を検証する
+            if !super::validate_user_ptr(addr, 8) {
+                return EFAULT;
+            }
             unsafe { core::ptr::write(addr as *mut u64, val) };
             SUCCESS
         }
@@ -421,8 +446,11 @@ pub fn find_process_by_name(name_ptr: u64, len: u64) -> u64 {
         return 0;
     }
 
-    // ユーザー空間から名前をコピー（安全のため制限付き）
-    // 本来はユーザーメモリチェックが必要
+    // ユーザー空間アドレスの有効性を検証する
+    if !super::validate_user_ptr(name_ptr, len) {
+        return 0;
+    }
+
     let name_slice = unsafe { core::slice::from_raw_parts(name_ptr as *const u8, len as usize) };
     let name = match str::from_utf8(name_slice) {
         Ok(s) => s,

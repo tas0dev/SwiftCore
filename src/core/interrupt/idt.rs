@@ -768,9 +768,11 @@ extern "x86-interrupt" fn virtualization_handler(stack_frame: InterruptStackFram
 /// このハンドラは、将来的に各デバイスに対応した具体的な処理を実装するためのプレースホルダとして使用される予定
 extern "x86-interrupt" fn generic_interrupt_handler(_stack_frame: InterruptStackFrame) {
     debug!("INTERRUPT: GENERIC");
-    // EOIを送信
+    // マスターPICのみにEOIを送信する (LOW-01)
+    // このハンドラはどのIRQから呼ばれるか不明のため、IRQ 0-7 (マスターのみ) を想定して
+    // スレーブPICへの不正なEOI送信によるスプリアス割り込みを防ぐ。
+    // IRQ 8-15 が必要なデバイスは専用ハンドラで両PICにEOIを送る。
     unsafe {
-        super::pic::PIC_SLAVE.end_of_interrupt();
         super::pic::PIC_MASTER.end_of_interrupt();
     }
 }
