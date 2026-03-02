@@ -60,11 +60,12 @@ pub fn write(fd: u64, buf_ptr: u64, len: u64) -> u64 {
     // UTF-8として解釈を試みる
     if let Ok(s) = core::str::from_utf8(buf) {
         debug!("write: valid UTF-8: {:?}", s);
-        // シリアルポートに文字列を出力
+        // シリアルポートとフレームバッファの両方に出力
         x86_64::instructions::interrupts::without_interrupts(|| {
             let mut console = console::SERIAL.lock();
             let _ = console.write_str(s);
         });
+        crate::util::vga::print(format_args!("{}", s));
     } else {
         debug!("write: invalid UTF-8, writing bytes");
         // UTF-8でない場合はバイト列として出力
