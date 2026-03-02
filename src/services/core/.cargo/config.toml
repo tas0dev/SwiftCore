@@ -2,7 +2,7 @@
 target = "../../x86_64-swiftcore.json"
 
 [unstable]
-build-std = ["std", "panic_abort"]
+build-std = ["core", "alloc", "panic_abort"]
 build-std-features = ["compiler-builtins-mem"]
 
 [target.x86_64-swiftcore]
