@@ -22,6 +22,61 @@ pub fn get_thread_id() -> u64 {
     }
 }
 
+/// スレッドIDからプロセスの権限レベルを取得
+///
+/// # 引数
+/// - `tid_val`: スレッドID
+///
+/// # 戻り値
+/// 0=Core, 1=Service, 2=User, エラー時はEINVAL
+pub fn get_thread_privilege(tid_val: u64) -> u64 {
+    let mut found_pid: Option<crate::task::ProcessId> = None;
+    crate::task::for_each_thread(|t| {
+        if found_pid.is_none() && t.id().as_u64() == tid_val {
+            found_pid = Some(t.process_id());
+        }
+    });
+    let pid = match found_pid {
+        Some(p) => p,
+        None => return crate::syscall::EINVAL,
+    };
+    match crate::task::with_process(pid, |p| p.privilege()) {
+        Some(crate::task::PrivilegeLevel::Core) => 0,
+        Some(crate::task::PrivilegeLevel::Service) => 1,
+        Some(crate::task::PrivilegeLevel::User) => 2,
+        None => crate::syscall::EINVAL,
+    }
+}
+
+/// スレッドIDからプロセスの権限レベルを取得
+///
+/// # 引数
+/// - `tid_val`: スレッドID (u64)
+///
+/// # 戻り値
+/// 0=Core, 1=Service, 2=User, またはエラー (#22: ディスクサービスの特権検証に使用)
+pub fn get_thread_privilege(tid_val: u64) -> u64 {
+    // スレッドIDに対応するプロセスIDを探す
+    let mut found_pid: Option<crate::task::ProcessId> = None;
+    crate::task::for_each_thread(|t| {
+        if found_pid.is_none() && t.id().as_u64() == tid_val {
+            found_pid = Some(t.process_id());
+        }
+    });
+
+    let pid = match found_pid {
+        Some(p) => p,
+        None => return crate::syscall::EINVAL,
+    };
+
+    match crate::task::with_process(pid, |p| p.privilege()) {
+        Some(crate::task::PrivilegeLevel::Core) => 0,
+        Some(crate::task::PrivilegeLevel::Service) => 1,
+        Some(crate::task::PrivilegeLevel::User) => 2,
+        None => crate::syscall::EINVAL,
+    }
+}
+
 /// スレッド名からIDを取得
 pub fn get_thread_id_by_name(name_ptr: u64, name_len: u64) -> u64 {
     const MAX_NAME_LEN: usize = 64;

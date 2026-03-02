@@ -615,6 +615,12 @@ pub fn thread_count() -> usize {
     THREAD_QUEUE.lock().count()
 }
 
+/// 指定した u64 IDのスレッドが存在するか確認 (IPC送信先検証用)
+pub fn thread_id_exists(id_val: u64) -> bool {
+    let queue = THREAD_QUEUE.lock();
+    queue.iter().any(|t| t.id().as_u64() == id_val)
+}
+
 /// 現在実行中のスレッドIDを取得
 pub fn current_thread_id() -> Option<ThreadId> {
     *CURRENT_THREAD.lock()

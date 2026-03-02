@@ -88,6 +88,11 @@ pub fn send(dest_thread_id: u64, buf_ptr: u64, len: u64) -> u64 {
         return EINVAL;
     }
 
+    // 送信先スレッドが実際に存在するか確認 (#14: ゴーストメッセージ注入防止)
+    if !crate::task::thread_id_exists(dest_thread_id) {
+        return EINVAL;
+    }
+
     // データをユーザー空間からコピー
     let mut data = [0u8; MAX_MSG_SIZE];
     if len > 0 && buf_ptr != 0 {
