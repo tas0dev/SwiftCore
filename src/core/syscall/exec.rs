@@ -27,8 +27,18 @@ pub fn exec_kernel(path_ptr: u64) -> u64 {
     let path = provided_path.unwrap_or("/hello.bin");
 
     // ユーザー空間からはサービス（.serviceで終わる名前）を起動できない
+    // ただし core.service はサービスマネージャーとして他のサービスを起動できる
     if path.ends_with(".service") {
-        return crate::syscall::types::EPERM;
+        let caller_is_core = crate::task::current_thread_id()
+            .and_then(|tid| crate::task::with_thread(tid, |t| t.process_id()))
+            .and_then(|pid| crate::task::with_process(pid, |p| {
+                let name = p.name();
+                name == "core.service" || name == "core"
+            }))
+            .unwrap_or(false);
+        if !caller_is_core {
+            return crate::syscall::types::EPERM;
+        }
     }
 
     exec_internal(path, None)
@@ -42,12 +52,6 @@ pub fn exec_kernel_with_name(path: &str, name: &str) -> u64 {
 fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
     let process_name = name_override.unwrap_or(path);
     crate::debug!("exec: path={}, name={}", path, process_name);
-
-    // カーネルを経由しても、core.service以外のサービスは起動できない
-    if process_name.ends_with(".service") && process_name != "core.service" {
-        crate::warn!("exec: '{}' の起動が拒否されました: core.service のみ起動可能です", process_name);
-        return crate::syscall::types::EPERM;
-    }
 
     if let Some(data) = crate::init::fs::read(path) {
         let data: &[u8] = &data;
