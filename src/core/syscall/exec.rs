@@ -8,6 +8,10 @@ use core::convert::TryInto;
 pub fn exec_kernel(path_ptr: u64) -> u64 {
     let mut provided_path: Option<&str> = None;
     if path_ptr != 0 {
+        // ユーザー空間アドレスの有効性を検証する
+        if !crate::syscall::validate_user_ptr(path_ptr, 256) {
+            return crate::syscall::types::EINVAL;
+        }
         let mut len = 0usize;
         unsafe {
             let mut p = path_ptr as *const u8;
@@ -72,12 +76,30 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
         };
         crate::debug!("Created user page table at {:#x}", new_pt_phys);
 
+        // ELFアーキテクチャ検証 (MED-07)
+        const EM_X86_64: u16 = 0x3E;
         if let Some(eh) = elf_loader::parse_elf_header(data) {
+            if eh.e_machine != EM_X86_64 {
+                crate::warn!("ELF e_machine {:#x} is not x86-64, rejecting", eh.e_machine);
+                return crate::syscall::types::EINVAL;
+            }
             let phoff = eh.e_phoff as usize;
             let phentsz = eh.e_phentsize as usize;
+            // phentszが0の場合は無限ループを防ぐため拒否 (MED-08)
+            if phentsz == 0 {
+                crate::warn!("ELF phentsize is 0, rejecting");
+                return crate::syscall::types::EINVAL;
+            }
             let phnum = eh.e_phnum as usize;
             for i in 0..phnum {
-                let off_hdr = phoff + i * phentsz;
+                // オーバーフロー安全な乗算と加算 (MED-08)
+                let off_hdr = match i.checked_mul(phentsz).and_then(|x| phoff.checked_add(x)) {
+                    Some(o) if o < data.len() => o,
+                    _ => {
+                        crate::warn!("ELF program header offset overflow or out of bounds");
+                        return crate::syscall::types::EINVAL;
+                    }
+                };
                 if let Some(ph) = elf_loader::parse_phdr(data, off_hdr) {
                     if ph.p_type == elf_loader::PT_LOAD {
                         let vaddr = ph.p_vaddr;
@@ -88,6 +110,32 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                         let writable = (flags & 0x2) != 0;
                         let executable = (flags & 0x1) != 0;
 
+                        // ELFセグメントのvaddrがユーザー空間内であることを検証 (CRIT-05)
+                        const USER_SPACE_END: u64 = 0x0000_7FFF_FFFF_FFFF;
+                        if vaddr >= USER_SPACE_END {
+                            crate::warn!("ELF segment vaddr {:#x} is in kernel space", vaddr);
+                            return crate::syscall::types::EINVAL;
+                        }
+                        if memsz > 0 {
+                            let vend = match vaddr.checked_add(memsz) {
+                                Some(e) if e <= USER_SPACE_END => e,
+                                _ => {
+                                    crate::warn!("ELF segment vaddr+memsz overflows user space");
+                                    return crate::syscall::types::EINVAL;
+                                }
+                            };
+                            let _ = vend;
+                        }
+
+                        // ELFセグメントの境界チェック (CRIT-04)
+                        let src_end = match src_off.checked_add(filesz as usize) {
+                            Some(e) if e <= data.len() => e,
+                            _ => {
+                                crate::warn!("ELF segment src offset+filesz out of bounds");
+                                return crate::syscall::types::EINVAL;
+                            }
+                        };
+
                         crate::debug!(
                             "Mapping seg {} -> {:#x} (filesz={}, memsz={})",
                             i,
@@ -95,7 +143,7 @@ fn exec_internal(path: &str, name_override: Option<&str>) -> u64 {
                             filesz,
                             memsz
                         );
-                        let seg_src = &data[src_off..src_off + filesz as usize];
+                        let seg_src = &data[src_off..src_end];
 
                         if let Err(e) = crate::mem::paging::map_and_copy_segment_to(
                             new_pt_phys,
@@ -506,6 +554,11 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
         return EINVAL;
     }
 
+    // ユーザー空間アドレスの有効性を検証する
+    if !crate::syscall::validate_user_ptr(path_ptr, 256) {
+        return EINVAL;
+    }
+
     // ユーザー空間から null 終端パスを読み込む
     let mut len = 0usize;
     unsafe {
@@ -549,16 +602,53 @@ pub fn execve_syscall(path_ptr: u64, _argv: u64, _envp: u64) -> u64 {
     };
 
     // PT_LOAD セグメントをマップ
+    const EM_X86_64_EXECVE: u16 = 0x3E;
+    const USER_SPACE_END_EXECVE: u64 = 0x0000_7FFF_FFFF_FFFF;
     if let Some(eh) = crate::elf::loader::parse_elf_header(data) {
+        // ELFアーキテクチャ検証 (MED-07)
+        if eh.e_machine != EM_X86_64_EXECVE {
+            crate::warn!("execve: ELF e_machine {:#x} is not x86-64", eh.e_machine);
+            return EINVAL;
+        }
         let phoff = eh.e_phoff as usize;
         let phentsz = eh.e_phentsize as usize;
+        // phentszが0の場合は無限ループを防ぐ (MED-08)
+        if phentsz == 0 {
+            return EINVAL;
+        }
         let phnum = eh.e_phnum as usize;
         for i in 0..phnum {
-            let off_hdr = phoff + i * phentsz;
+            // オーバーフロー安全な乗算と加算 (MED-08)
+            let off_hdr = match i.checked_mul(phentsz).and_then(|x| phoff.checked_add(x)) {
+                Some(o) if o < data.len() => o,
+                _ => return EINVAL,
+            };
             if let Some(ph) = crate::elf::loader::parse_phdr(data, off_hdr) {
                 if ph.p_type == crate::elf::loader::PT_LOAD {
-                    let seg_src =
-                        &data[ph.p_offset as usize..ph.p_offset as usize + ph.p_filesz as usize];
+                    // ELFセグメントのvaddrがユーザー空間内であることを検証 (CRIT-05)
+                    if ph.p_vaddr >= USER_SPACE_END_EXECVE {
+                        crate::warn!("execve: ELF segment vaddr {:#x} is in kernel space", ph.p_vaddr);
+                        return EINVAL;
+                    }
+                    if ph.p_memsz > 0 {
+                        match ph.p_vaddr.checked_add(ph.p_memsz) {
+                            Some(e) if e <= USER_SPACE_END_EXECVE => {}
+                            _ => {
+                                crate::warn!("execve: ELF segment vaddr+memsz overflows user space");
+                                return EINVAL;
+                            }
+                        }
+                    }
+                    // ELFセグメントの境界チェック (CRIT-04)
+                    let src_off = ph.p_offset as usize;
+                    let src_end = match src_off.checked_add(ph.p_filesz as usize) {
+                        Some(e) if e <= data.len() => e,
+                        _ => {
+                            crate::warn!("execve: ELF segment src offset+filesz out of bounds");
+                            return EINVAL;
+                        }
+                    };
+                    let seg_src = &data[src_off..src_end];
                     if let Err(_) = crate::mem::paging::map_and_copy_segment_to(
                         new_pt_phys,
                         ph.p_vaddr,

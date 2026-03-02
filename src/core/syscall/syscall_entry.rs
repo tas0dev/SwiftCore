@@ -86,14 +86,15 @@ pub fn init_syscall() {
         base + 4096 * 8
     };
 
-    SYSCALL_KERNEL_RSP.store(kstack_top, Ordering::Relaxed);
+    SYSCALL_KERNEL_RSP.store(kstack_top, Ordering::SeqCst);
 
     crate::info!("SYSCALL/SYSRET initialized: LSTAR={:#x}", lstar_val);
 }
 
 /// SYSCALL カーネルスタックを更新する (コンテキストスイッチ時に呼ぶ)
 pub fn update_kernel_rsp(rsp: u64) {
-    SYSCALL_KERNEL_RSP.store(rsp, Ordering::Relaxed);
+    // SeqCst を使用してメモリ順序を保証する (MED-05)
+    SYSCALL_KERNEL_RSP.store(rsp, Ordering::SeqCst);
 }
 
 /// SYSCALL エントリポイント (naked function)
