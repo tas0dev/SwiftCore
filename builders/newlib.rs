@@ -1,8 +1,8 @@
+use num_cpus;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use num_cpus;
 
 pub fn build_newlib(src_dir: &Path) {
     let target = env::var("TARGET").expect("TARGET not set");
@@ -18,9 +18,7 @@ pub fn build_newlib(src_dir: &Path) {
         manifest_dir.join(target_dir)
     };
 
-    let build_base_dir = abs_target_dir
-        .join(&target)
-        .join(&profile);
+    let build_base_dir = abs_target_dir.join(&target).join(&profile);
 
     let install_dir = build_base_dir.join("newlib_install");
     let build_dir = build_base_dir.join("newlib_build");
@@ -41,7 +39,10 @@ pub fn build_newlib(src_dir: &Path) {
 
         let configure_script = src_dir.join("configure");
         if !configure_script.exists() {
-            panic!("configure script not found at {}", configure_script.display());
+            panic!(
+                "configure script not found at {}",
+                configure_script.display()
+            );
         }
 
         let abs_configure = configure_script.canonicalize().unwrap();
@@ -148,7 +149,9 @@ pub fn build_user_libs(user_dir: &Path, libc_dir: &Path) {
         .arg(&libc_a)
         .status()
         .expect("Failed to extract libc.a");
-    if !status.success() { panic!("ar x libc.a failed"); }
+    if !status.success() {
+        panic!("ar x libc.a failed");
+    }
 
     let status = Command::new("ar")
         .current_dir(&merge_dir)
@@ -156,7 +159,9 @@ pub fn build_user_libs(user_dir: &Path, libc_dir: &Path) {
         .arg(&libglue_a)
         .status()
         .expect("Failed to extract libuserglue.a");
-    if !status.success() { panic!("ar x libuserglue.a failed"); }
+    if !status.success() {
+        panic!("ar x libuserglue.a failed");
+    }
 
     let status = Command::new("sh")
         .current_dir(&merge_dir)
@@ -165,7 +170,9 @@ pub fn build_user_libs(user_dir: &Path, libc_dir: &Path) {
         .status()
         .expect("Failed to repack libc.a");
 
-    if !status.success() { panic!("ar rcs libc.a failed"); }
+    if !status.success() {
+        panic!("ar rcs libc.a failed");
+    }
 
     fs::remove_dir_all(&merge_dir).unwrap();
     println!("Successfully merged user glue into libc.a");

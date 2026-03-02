@@ -47,7 +47,8 @@ pub struct Thread {
 // Simple kernel stack pool for creating kernel stacks for threads
 const KSTACK_POOL_SIZE: usize = 4096 * 64; // 256 KiB
 static mut KSTACK_POOL: [u8; KSTACK_POOL_SIZE] = [0; KSTACK_POOL_SIZE];
-static NEXT_KSTACK_OFFSET: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static NEXT_KSTACK_OFFSET: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
 
 /// カーネルスタックを内部プールから割り当てます。
 /// Returns base address (bottom) of stack.
@@ -168,14 +169,29 @@ impl Thread {
             // スレッド固有のuser_entryとuser_stackを取得してジャンプする
             let tid = match current_thread_id() {
                 Some(t) => t,
-                None => { crate::warn!("usermode_entry_trampoline: No current thread"); loop { x86_64::instructions::hlt(); } }
+                None => {
+                    crate::warn!("usermode_entry_trampoline: No current thread");
+                    loop {
+                        x86_64::instructions::hlt();
+                    }
+                }
             };
-            let (entry, stack) = match with_thread(tid, |thread| (thread.user_entry(), thread.user_stack())) {
-                Some(v) => v,
-                None => { crate::warn!("usermode_entry_trampoline: Thread not found"); loop { x86_64::instructions::hlt(); } }
-            };
+            let (entry, stack) =
+                match with_thread(tid, |thread| (thread.user_entry(), thread.user_stack())) {
+                    Some(v) => v,
+                    None => {
+                        crate::warn!("usermode_entry_trampoline: Thread not found");
+                        loop {
+                            x86_64::instructions::hlt();
+                        }
+                    }
+                };
 
-            crate::debug!("Jumping to usermode: entry={:#x}, stack={:#x}", entry, stack);
+            crate::debug!(
+                "Jumping to usermode: entry={:#x}, stack={:#x}",
+                entry,
+                stack
+            );
             unsafe {
                 crate::task::jump_to_usermode(entry, stack);
             }
@@ -260,11 +276,28 @@ impl Thread {
         extern "C" fn fork_child_trampoline() -> ! {
             let tid = match current_thread_id() {
                 Some(t) => t,
-                None => { crate::warn!("fork_child_trampoline: No current thread"); loop { x86_64::instructions::hlt(); } }
+                None => {
+                    crate::warn!("fork_child_trampoline: No current thread");
+                    loop {
+                        x86_64::instructions::hlt();
+                    }
+                }
             };
-            let (entry, stack, rflags, fs) = match with_thread(tid, |thread| (thread.user_entry(), thread.user_stack(), thread.fork_user_rflags(), thread.fs_base())) {
+            let (entry, stack, rflags, fs) = match with_thread(tid, |thread| {
+                (
+                    thread.user_entry(),
+                    thread.user_stack(),
+                    thread.fork_user_rflags(),
+                    thread.fs_base(),
+                )
+            }) {
                 Some(v) => v,
-                None => { crate::warn!("fork_child_trampoline: Thread not found"); loop { x86_64::instructions::hlt(); } }
+                None => {
+                    crate::warn!("fork_child_trampoline: Thread not found");
+                    loop {
+                        x86_64::instructions::hlt();
+                    }
+                }
             };
             unsafe {
                 crate::task::usermode::jump_to_usermode_fork_child(entry, stack, rflags, fs);
@@ -277,7 +310,10 @@ impl Thread {
         Self {
             id: ThreadId::new(),
             process_id,
-            name: [b'f',b'o',b'r',b'k',0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            name: [
+                b'f', b'o', b'r', b'k', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0,
+            ],
             name_len: 4,
             state: ThreadState::Ready,
             context,

@@ -2,8 +2,8 @@
 //!
 //! Global Descriptor Tableを管理
 
-use crate::mem::tss;
 use crate::info;
+use crate::mem::tss;
 use core::arch::asm;
 use spin::Once;
 use x86_64::instructions::tables::load_tss;
@@ -100,7 +100,9 @@ pub fn user_code_selector() -> u16 {
         .map(|g| g.1.user_code_selector.0)
         .unwrap_or_else(|| {
             crate::warn!("GDT not initialized");
-            loop { x86_64::instructions::hlt(); }
+            loop {
+                x86_64::instructions::hlt();
+            }
         })
 }
 
@@ -110,36 +112,38 @@ pub fn user_data_selector() -> u16 {
         .map(|g| g.1.user_data_selector.0)
         .unwrap_or_else(|| {
             crate::warn!("GDT not initialized");
-            loop { x86_64::instructions::hlt(); }
+            loop {
+                x86_64::instructions::hlt();
+            }
         })
 }
 
 /// カーネル用コードセレクタを返す
 pub fn kernel_code_selector() -> u16 {
-    GDT.get()
-        .map(|g| g.1.code_selector.0)
-        .unwrap_or_else(|| {
-            crate::warn!("GDT not initialized");
-            loop { x86_64::instructions::hlt(); }
-        })
+    GDT.get().map(|g| g.1.code_selector.0).unwrap_or_else(|| {
+        crate::warn!("GDT not initialized");
+        loop {
+            x86_64::instructions::hlt();
+        }
+    })
 }
 
 /// カーネル用データセレクタを返す
 pub fn kernel_data_selector() -> u16 {
-    GDT.get()
-        .map(|g| g.1.data_selector.0)
-        .unwrap_or_else(|| {
-            crate::warn!("GDT not initialized");
-            loop { x86_64::instructions::hlt(); }
-        })
+    GDT.get().map(|g| g.1.data_selector.0).unwrap_or_else(|| {
+        crate::warn!("GDT not initialized");
+        loop {
+            x86_64::instructions::hlt();
+        }
+    })
 }
 
 #[allow(unused)]
 /// データセグメントレジスタを設定
-/// 
+///
 /// ## Arguments
 /// - `selector`: 設定するセグメントセレクタ
-/// 
+///
 /// ## Safety
 /// - 呼び出し前にGDTが正しく初期化されている必要がある
 unsafe fn set_data_segments(selector: SegmentSelector) {
@@ -156,7 +160,7 @@ unsafe fn set_data_segments(selector: SegmentSelector) {
 
 #[allow(unused)]
 /// コードセグメントを設定
-/// 
+///
 /// ## Arguments
 /// - `selector`: 設定するセグメントセレクタ
 unsafe fn set_cs(selector: SegmentSelector) {

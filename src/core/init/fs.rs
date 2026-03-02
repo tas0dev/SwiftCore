@@ -4,8 +4,8 @@
 //! - 直接ブロック + 単一間接ブロック対応
 //! - 動的バッファで任意サイズのファイルを読み取り可能
 
-use core::str;
 use alloc::vec::Vec;
+use core::str;
 
 /// EXT2ファイルシステムのマジックナンバー
 pub const EXT2_MAGIC: u16 = 0xEF53;
@@ -99,10 +99,10 @@ pub fn init() {
 }
 
 /// ファイルを取得
-/// 
+///
 /// ## Arguments
 /// - `name`: ルートからのパス（例: "hello.txt", "dir/sub.txt"）
-/// 
+///
 /// ## Returns
 /// - ファイルが存在すれば内容のバイトベクタ、存在しなければNone
 pub fn read(name: &str) -> Option<Vec<u8>> {
@@ -110,7 +110,7 @@ pub fn read(name: &str) -> Option<Vec<u8>> {
 }
 
 /// ファイル一覧を取得（root直下）
-/// 
+///
 /// ## Returns
 /// - root直下のファイルとサブディレクトリを列挙するイテレータ
 pub fn entries() -> FsEntries<'static> {
@@ -144,19 +144,19 @@ fn superblock(image: &[u8]) -> Option<Superblock> {
     if image.len() < 2048 {
         return None;
     }
-    
+
     let sb_off = 1024;
     let magic = read_u16(image, sb_off + 56)?;
-    
+
     if magic != EXT2_MAGIC {
         return None;
     }
-    
+
     let log_block_size = read_u32(image, sb_off + 24)?;
     let block_size = 1024u32.checked_shl(log_block_size)?;
     let inode_size = read_u16(image, sb_off + 88)?;
     let inodes_per_group = read_u32(image, sb_off + 40)?;
-    
+
     Some(Superblock {
         block_size,
         inode_size,
@@ -227,7 +227,9 @@ fn data_block_number(
     let idx = block_index - 12;
     if idx < entries_per_block {
         let indirect = inode.blocks[12];
-        if indirect == 0 { return None; }
+        if indirect == 0 {
+            return None;
+        }
         let block = block_slice(image, sb.block_size, indirect)?;
         return read_u32(block, idx * 4);
     }
@@ -236,11 +238,15 @@ fn data_block_number(
     let idx2 = idx - entries_per_block;
     if idx2 < entries_per_block * entries_per_block {
         let dindirect = inode.blocks[13];
-        if dindirect == 0 { return None; }
+        if dindirect == 0 {
+            return None;
+        }
         let l1 = block_slice(image, sb.block_size, dindirect)?;
         let l1_idx = idx2 / entries_per_block;
         let l1_entry = read_u32(l1, l1_idx * 4)?;
-        if l1_entry == 0 { return None; }
+        if l1_entry == 0 {
+            return None;
+        }
         let l2 = block_slice(image, sb.block_size, l1_entry)?;
         let l2_idx = idx2 % entries_per_block;
         return read_u32(l2, l2_idx * 4);
@@ -261,7 +267,12 @@ fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<Vec<u
     let blocks_needed = (size + sb.block_size as usize - 1) / sb.block_size as usize;
     let mut buf = Vec::with_capacity(size);
 
-    crate::debug!("read_inode_data: inode={}, size={}, blocks_needed={}", inode_num, size, blocks_needed);
+    crate::debug!(
+        "read_inode_data: inode={}, size={}, blocks_needed={}",
+        inode_num,
+        size,
+        blocks_needed
+    );
 
     for block_idx in 0..blocks_needed {
         let block_num = data_block_number(image, sb, inode, block_idx)?;
@@ -272,8 +283,13 @@ fn read_inode_data(image: &[u8], sb: Superblock, inode_num: u32) -> Option<Vec<u
         let block = block_slice(image, sb.block_size, block_num)?;
         let to_copy = core::cmp::min(block.len(), size - buf.len());
 
-        crate::debug!("  block_idx={}, block_num={}, to_copy={}, written={}", 
-                     block_idx, block_num, to_copy, buf.len());
+        crate::debug!(
+            "  block_idx={}, block_num={}, to_copy={}, written={}",
+            block_idx,
+            block_num,
+            to_copy,
+            buf.len()
+        );
 
         buf.extend_from_slice(&block[..to_copy]);
         if buf.len() >= size {

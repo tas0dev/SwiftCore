@@ -25,7 +25,7 @@ pub fn build_apps(apps_dir: &Path, output_dir: &Path, extension: &str) {
         }
 
         let app_name = path.file_name().unwrap().to_string_lossy();
-        
+
         // testsディレクトリはSTART_TEST_APP=trueの場合のみビルド
         if app_name == "tests" && !run_tests {
             println!("Skipping tests app (START_TEST_APP not enabled)");
@@ -79,8 +79,7 @@ pub fn build_apps(apps_dir: &Path, output_dir: &Path, extension: &str) {
                         Some("x86_64-unknown-none".to_string())
                     };
 
-                    if let Some(elf_path) = find_built_binary(&target_dir, target_name.as_deref())
-                    {
+                    if let Some(elf_path) = find_built_binary(&target_dir, target_name.as_deref()) {
                         let dest_name = format!("{}.{}", app_name, extension);
                         let dest = output_dir.join(&dest_name);
                         if let Err(e) = fs::copy(&elf_path, &dest) {
