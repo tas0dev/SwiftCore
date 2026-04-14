@@ -1,6 +1,7 @@
 use swiftlib::{
     ipc::{ipc_recv, ipc_send},
     keyboard::{read_scancode, read_scancode_tap},
+    privileged,
     task::{find_process_by_name, yield_now},
 };
 
@@ -11,7 +12,16 @@ const KAGAMI_PROCESS_CANDIDATES: [&str; 3] =
 const OP_REQ_CREATE_WINDOW: u32 = 1;
 const OP_RES_WINDOW_CREATED: u32 = 2;
 const OP_REQ_FLUSH_CHUNK: u32 = 4;
+const OP_REQ_ATTACH_SHARED: u32 = 5;
+const OP_REQ_PRESENT_SHARED: u32 = 6;
+const OP_RES_SHARED_ATTACHED: u32 = 7;
 const LAYER_APP: u8 = 3;
+
+struct SharedSurface {
+    virt_addr: u64,
+    page_count: u64,
+    total_pixels: usize,
+}
 
 fn main() {
     println!("[Terminal] start");
@@ -33,12 +43,21 @@ fn main() {
         }
     };
 
+    let shared_surface = match setup_shared_surface(kagami_tid, window_id, width, height) {
+        Ok(surface) => surface,
+        Err(e) => {
+            eprintln!("[Terminal] shared setup failed: {}", e);
+            return;
+        }
+    };
+
     let pixels = render_terminal_bootstrap(width as usize, height as usize);
-    if let Err(e) = flush_window_chunked(kagami_tid, window_id, width, height, &pixels) {
+    blit_shared_surface(&shared_surface, &pixels);
+    if let Err(e) = present_shared(kagami_tid, window_id) {
         eprintln!("[Terminal] draw failed: {}", e);
         return;
     }
-    println!("[Terminal] window shown");
+    println!("[Terminal] window shown (shared)");
 
     loop {
         let sc_opt = match read_scancode_tap() {
@@ -80,6 +99,90 @@ fn create_window(kagami_tid: u64, width: u16, height: u16) -> Result<u32, &'stat
         return Ok(u32::from_le_bytes([recv[4], recv[5], recv[6], recv[7]]));
     }
     Err("window create timeout")
+}
+
+fn setup_shared_surface(
+    kagami_tid: u64,
+    window_id: u32,
+    width: u16,
+    height: u16,
+) -> Result<SharedSurface, &'static str> {
+    let total = width as usize * height as usize;
+    let total_bytes = total.checked_mul(4).ok_or("size overflow")?;
+    let page_count = total_bytes.div_ceil(4096);
+    if page_count == 0 {
+        return Err("shared surface page count out of range");
+    }
+
+    let mut phys_pages = vec![0u64; page_count];
+    let virt_addr =
+        unsafe { privileged::alloc_shared_pages(page_count as u64, Some(phys_pages.as_mut_slice()), 0) };
+    if (virt_addr as i64) < 0 || virt_addr == 0 {
+        return Err("alloc_shared_pages failed");
+    }
+
+    let mut attach = [0u8; 12];
+    attach[0..4].copy_from_slice(&OP_REQ_ATTACH_SHARED.to_le_bytes());
+    attach[4..8].copy_from_slice(&window_id.to_le_bytes());
+    attach[8..10].copy_from_slice(&width.to_le_bytes());
+    attach[10..12].copy_from_slice(&height.to_le_bytes());
+    if (ipc_send(kagami_tid, &attach) as i64) < 0 {
+        return Err("failed to send shared attach");
+    }
+
+    let send_pages_ret = unsafe { privileged::ipc_send_pages(kagami_tid, phys_pages.as_slice(), 0) };
+    if (send_pages_ret as i64) < 0 {
+        return Err("failed to send shared pages");
+    }
+    wait_shared_attach_ack(kagami_tid, window_id)?;
+
+    Ok(SharedSurface {
+        virt_addr,
+        page_count: page_count as u64,
+        total_pixels: total,
+    })
+}
+
+fn wait_shared_attach_ack(kagami_tid: u64, window_id: u32) -> Result<(), &'static str> {
+    let mut recv = [0u8; IPC_BUF_SIZE];
+    for _ in 0..256 {
+        let (sender, len) = ipc_recv(&mut recv);
+        if sender != kagami_tid || len < 8 {
+            yield_now();
+            continue;
+        }
+        let op = u32::from_le_bytes([recv[0], recv[1], recv[2], recv[3]]);
+        if op != OP_RES_SHARED_ATTACHED {
+            continue;
+        }
+        let ack_window = u32::from_le_bytes([recv[4], recv[5], recv[6], recv[7]]);
+        if ack_window == window_id {
+            return Ok(());
+        }
+    }
+    Err("shared attach ack timeout")
+}
+
+fn blit_shared_surface(surface: &SharedSurface, pixels: &[u32]) {
+    let count = surface.total_pixels.min(pixels.len());
+    let mapped_pixels = (surface.page_count as usize).saturating_mul(4096) / 4;
+    let count = count.min(mapped_pixels);
+    unsafe {
+        let dst = core::slice::from_raw_parts_mut(surface.virt_addr as *mut u32, count);
+        for (d, s) in dst.iter_mut().zip(pixels.iter().take(count)) {
+            *d = *s | 0xFF00_0000;
+        }
+    }
+}
+
+fn present_shared(kagami_tid: u64, window_id: u32) -> Result<(), &'static str> {
+    let mut present = [0u8; 8];
+    present[0..4].copy_from_slice(&OP_REQ_PRESENT_SHARED.to_le_bytes());
+    present[4..8].copy_from_slice(&window_id.to_le_bytes());
+    if (ipc_send(kagami_tid, &present) as i64) < 0 {
+        return Err("failed to send shared present");
+    }
+    Ok(())
 }
 
 fn flush_window_chunked(
@@ -155,13 +258,13 @@ fn render_terminal_bootstrap(width: usize, height: usize) -> Vec<u32> {
         height as i32 - 18,
         0xFF0D_1117,
     );
-    draw_text(&mut px, width, 16, 10, "Terminal (bootstrap)", 0xFFCF_D8E3);
+    draw_text(&mut px, width, 16, 10, "Terminal", 0xFFCF_D8E3);
     draw_text(
         &mut px,
         width,
         24,
         48,
-        "Window init OK. Next: terminal emulator core.",
+        "Window init OK.",
         0xFFA6_B3C2,
     );
     draw_text(
