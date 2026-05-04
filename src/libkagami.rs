@@ -88,10 +88,132 @@ mod unix_impl {
             _qh: &QueueHandle<RegistryState>,
         ) {}
     }
-
+    
+    // Dedicated state for input event handling with proper Dispatch implementations
+    struct InputState;
+    impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for InputState {
+        fn event(
+            _state: &mut InputState,
+            _proxy: &wl_registry::WlRegistry,
+            _event: wl_registry::Event,
+            _data: &GlobalListContents,
+            _conn: &Connection,
+            _qh: &QueueHandle<InputState>,
+        ) {
+            // no-op
+        }
+    }
+    impl Dispatch<WlSurface, ()> for InputState {
+        fn event(
+            _state: &mut InputState,
+            _proxy: &WlSurface,
+            _event: wl_surface::Event,
+            _data: &(),
+            _conn: &Connection,
+            _qh: &QueueHandle<InputState>,
+        ) {}
+    }
+    impl Dispatch<wl_callback::WlCallback, Arc<AtomicBool>> for InputState {
+        fn event(
+            _state: &mut InputState,
+            _proxy: &wl_callback::WlCallback,
+            event: wl_callback::Event,
+            data: &Arc<AtomicBool>,
+            _conn: &Connection,
+            _qh: &QueueHandle<InputState>,
+        ) {
+            if let wl_callback::Event::Done { .. } = event {
+                data.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+    
     // Pointer/Keyboard callbacks userdata
     struct PointerHandler(Arc<dyn Fn(f64, f64) + Send + Sync>);
     struct KeyboardHandler(Arc<dyn Fn(u32, wayland_client::WEnum<wl_keyboard::KeyState>) + Send + Sync>);
+
+    impl Dispatch<wl_pointer::WlPointer, Arc<PointerHandler>> for InputState {
+        fn event(
+            _state: &mut InputState,
+            _proxy: &wl_pointer::WlPointer,
+            event: wl_pointer::Event,
+            data: &Arc<PointerHandler>,
+            _conn: &Connection,
+            _qh: &QueueHandle<InputState>,
+        ) {
+            match event {
+                wl_pointer::Event::Motion { surface_x, surface_y, .. } => {
+                    println!("[libkagami] ✅ wl_pointer::Event::Motion fired: ({}, {})", surface_x, surface_y);
+                    let callback = &data.0;
+                    callback(surface_x, surface_y);
+                }
+                wl_pointer::Event::Enter { surface_x, surface_y, .. } => {
+                    println!("[libkagami] ✅ wl_pointer::Event::Enter fired at ({}, {})", surface_x, surface_y);
+                }
+                wl_pointer::Event::Leave { .. } => {
+                    println!("[libkagami] wl_pointer::Event::Leave fired");
+                }
+                wl_pointer::Event::Button { button, state, .. } => {
+                    println!("[libkagami] ✅ wl_pointer::Event::Button fired: button={}, state={:?}", button, state);
+                }
+                wl_pointer::Event::Axis { .. } => {
+                    println!("[libkagami] wl_pointer::Event::Axis fired (scroll)");
+                }
+                wl_pointer::Event::Frame => {
+                    println!("[libkagami] wl_pointer::Event::Frame");
+                }
+                wl_pointer::Event::AxisSource { .. } => {
+                    println!("[libkagami] wl_pointer::Event::AxisSource");
+                }
+                wl_pointer::Event::AxisStop { .. } => {
+                    println!("[libkagami] wl_pointer::Event::AxisStop");
+                }
+                wl_pointer::Event::AxisDiscrete { .. } => {
+                    println!("[libkagami] wl_pointer::Event::AxisDiscrete");
+                }
+                _ => {
+                    println!("[libkagami] wl_pointer event (unhandled type)");
+                }
+            }
+        }
+    }
+
+    impl Dispatch<wl_keyboard::WlKeyboard, Arc<KeyboardHandler>> for InputState {
+        fn event(
+            _state: &mut InputState,
+            _proxy: &wl_keyboard::WlKeyboard,
+            event: wl_keyboard::Event,
+            data: &Arc<KeyboardHandler>,
+            _conn: &Connection,
+            _qh: &QueueHandle<InputState>,
+        ) {
+            match event {
+                wl_keyboard::Event::Key { key, state, .. } => {
+                    println!("[libkagami] ✅ wl_keyboard::Event::Key fired: key={}, state={:?}", key, state);
+                    let callback = &data.0;
+                    callback(key, state);
+                }
+                wl_keyboard::Event::Enter { .. } => {
+                    println!("[libkagami] ✅ wl_keyboard::Event::Enter fired (keyboard focus acquired)");
+                }
+                wl_keyboard::Event::Leave { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::Leave fired (keyboard focus lost)");
+                }
+                wl_keyboard::Event::Keymap { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::Keymap");
+                }
+                wl_keyboard::Event::Modifiers { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::Modifiers");
+                }
+                wl_keyboard::Event::RepeatInfo { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::RepeatInfo");
+                }
+                _ => {
+                    println!("[libkagami] wl_keyboard event (unhandled type)");
+                }
+            }
+        }
+    }
 
     impl Dispatch<wl_pointer::WlPointer, Arc<PointerHandler>> for RegistryState {
         fn event(
@@ -104,9 +226,37 @@ mod unix_impl {
         ) {
             match event {
                 wl_pointer::Event::Motion { surface_x, surface_y, .. } => {
-                    data.0(surface_x, surface_y);
+                    println!("[libkagami] ✅ wl_pointer::Event::Motion fired: ({}, {})", surface_x, surface_y);
+                    let callback = &data.0;
+                    callback(surface_x, surface_y);
                 }
-                _ => {}
+                wl_pointer::Event::Enter { surface_x, surface_y, .. } => {
+                    println!("[libkagami] ✅ wl_pointer::Event::Enter fired at ({}, {})", surface_x, surface_y);
+                }
+                wl_pointer::Event::Leave { .. } => {
+                    println!("[libkagami] wl_pointer::Event::Leave fired");
+                }
+                wl_pointer::Event::Button { button, state, .. } => {
+                    println!("[libkagami] ✅ wl_pointer::Event::Button fired: button={}, state={:?}", button, state);
+                }
+                wl_pointer::Event::Axis { .. } => {
+                    println!("[libkagami] wl_pointer::Event::Axis fired (scroll)");
+                }
+                wl_pointer::Event::Frame => {
+                    println!("[libkagami] wl_pointer::Event::Frame");
+                }
+                wl_pointer::Event::AxisSource { .. } => {
+                    println!("[libkagami] wl_pointer::Event::AxisSource");
+                }
+                wl_pointer::Event::AxisStop { .. } => {
+                    println!("[libkagami] wl_pointer::Event::AxisStop");
+                }
+                wl_pointer::Event::AxisDiscrete { .. } => {
+                    println!("[libkagami] wl_pointer::Event::AxisDiscrete");
+                }
+                _ => {
+                    println!("[libkagami] wl_pointer event (unhandled type)");
+                }
             }
         }
     }
@@ -122,9 +272,28 @@ mod unix_impl {
         ) {
             match event {
                 wl_keyboard::Event::Key { key, state, .. } => {
-                    data.0(key, state);
+                    println!("[libkagami] ✅ wl_keyboard::Event::Key fired: key={}, state={:?}", key, state);
+                    let callback = &data.0;
+                    callback(key, state);
                 }
-                _ => {}
+                wl_keyboard::Event::Enter { .. } => {
+                    println!("[libkagami] ✅ wl_keyboard::Event::Enter fired (keyboard focus acquired)");
+                }
+                wl_keyboard::Event::Leave { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::Leave fired (keyboard focus lost)");
+                }
+                wl_keyboard::Event::Keymap { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::Keymap");
+                }
+                wl_keyboard::Event::Modifiers { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::Modifiers");
+                }
+                wl_keyboard::Event::RepeatInfo { .. } => {
+                    println!("[libkagami] wl_keyboard::Event::RepeatInfo");
+                }
+                _ => {
+                    println!("[libkagami] wl_keyboard event (unhandled type)");
+                }
             }
         }
     }
@@ -149,11 +318,21 @@ mod unix_impl {
         fn event(
             _state: &mut RegistryState,
             _proxy: &wl_seat::WlSeat,
-            _event: wl_seat::Event,
+            event: wl_seat::Event,
             _data: &(),
             _conn: &Connection,
             _qh: &QueueHandle<RegistryState>,
-        ) {}
+        ) {
+            match event {
+                wl_seat::Event::Capabilities { capabilities } => {
+                    println!("[libkagami] wl_seat capabilities: {:?}", capabilities);
+                }
+                wl_seat::Event::Name { name } => {
+                    println!("[libkagami] wl_seat name: {}", name);
+                }
+                _ => {}
+            }
+        }
     }
     impl Dispatch<wl_shell::WlShell, ()> for RegistryState {
         fn event(
@@ -168,12 +347,27 @@ mod unix_impl {
     impl Dispatch<wl_shell_surface::WlShellSurface, ()> for RegistryState {
         fn event(
             _state: &mut RegistryState,
-            _proxy: &wl_shell_surface::WlShellSurface,
-            _event: wl_shell_surface::Event,
+            proxy: &wl_shell_surface::WlShellSurface,
+            event: wl_shell_surface::Event,
             _data: &(),
-            _conn: &Connection,
+            conn: &Connection,
             _qh: &QueueHandle<RegistryState>,
-        ) {}
+        ) {
+            match event {
+                wl_shell_surface::Event::Ping { serial } => {
+                    println!("[libkagami] wl_shell_surface ping (serial={})", serial);
+                    proxy.pong(serial);
+                    let _ = conn.flush();
+                }
+                wl_shell_surface::Event::Configure { edges, width, height } => {
+                    println!("[libkagami] wl_shell_surface configure: {}x{}, edges={:?}", width, height, edges);
+                }
+                wl_shell_surface::Event::PopupDone => {
+                    println!("[libkagami] wl_shell_surface popup done");
+                }
+                _ => {}
+            }
+        }
     }
 
     // xdg toplevel handlers: respond to ping, no-op for surface/toplevel events
@@ -215,11 +409,25 @@ mod unix_impl {
         fn event(
             _state: &mut RegistryState,
             _proxy: &xdg_toplevel::XdgToplevel,
-            _event: xdg_toplevel::Event,
+            event: xdg_toplevel::Event,
             _data: &(),
             _conn: &Connection,
             _qh: &QueueHandle<RegistryState>,
-        ) {}
+        ) {
+            match event {
+                xdg_toplevel::Event::Configure { width, height, states } => {
+                    if width == 0 || height == 0 {
+                        println!("[libkagami] ⚠️  xdg_toplevel configure: {}x{} (zero size!), states={:?}", width, height, states);
+                    } else {
+                        println!("[libkagami] ✓ xdg_toplevel configure: {}x{}, states={:?}", width, height, states);
+                    }
+                }
+                xdg_toplevel::Event::Close => {
+                    println!("[libkagami] xdg_toplevel close requested");
+                }
+                _ => {}
+            }
+        }
     }
 
     fn connect_wayland() -> Result<(Connection, EventQueue<RegistryState>, GlobalList), String> {
@@ -268,6 +476,10 @@ mod unix_impl {
         globals: GlobalList,
         compositor: wl_compositor::WlCompositor,
         shm: wl_shm::WlShm,
+        pointer: Option<wl_pointer::WlPointer>,
+        keyboard: Option<wl_keyboard::WlKeyboard>,
+        shell_surface: Option<wl_shell_surface::WlShellSurface>,
+        xdg_surface: Option<xdg_surface::XdgSurface>,
     }
 
     // Helper to register input handlers
@@ -279,16 +491,43 @@ mod unix_impl {
     ) -> Result<(), String> {
         let qh = host.event_queue.handle();
         // bind seat
+        println!("[libkagami] Attempting to bind wl_seat...");
         let seat = host.globals.bind::<wl_seat::WlSeat, RegistryState, ()>(&qh, 1..=1, ())
             .map_err(|_| "seat not available".to_string())?;
+        println!("[libkagami] ✓ wl_seat bound successfully");
+        
+        // Sync to receive capabilities event
+        println!("[libkagami] Syncing to receive wl_seat capabilities...");
+        host.conn.flush().map_err(|e| format!("flush failed: {}", e))?;
+        let mut st = RegistryState;
+        let _ = host.event_queue.roundtrip(&mut st).map_err(|e| format!("roundtrip failed: {}", e))?;
+        println!("[libkagami] ✓ wl_seat sync complete");
+        
         if let Some(pcb) = pointer_cb {
+            println!("[libkagami] Getting wl_pointer...");
             let ud = Arc::new(PointerHandler(pcb));
-            let _pointer = seat.get_pointer(&qh, ud.clone());
+            let pointer = seat.get_pointer(&qh, ud.clone());
+            host.pointer = Some(pointer);
+            println!("[libkagami] ✓ wl_pointer obtained and handler registered");
         }
         if let Some(kcb) = keyboard_cb {
+            println!("[libkagami] Getting wl_keyboard...");
             let ud = Arc::new(KeyboardHandler(kcb));
-            let _kb = seat.get_keyboard(&qh, ud.clone());
+            let keyboard = seat.get_keyboard(&qh, ud.clone());
+            host.keyboard = Some(keyboard);
+            println!("[libkagami] ✓ wl_keyboard obtained and handler registered");
         }
+        
+        // Flush to ensure pointer/keyboard requests are sent to the server
+        println!("[libkagami] Flushing to send input device requests...");
+        host.conn.flush().map_err(|e| format!("flush failed: {}", e))?;
+        
+        // Roundtrip to process initial input device events (e.g., Enter events)
+        println!("[libkagami] Syncing input devices...");
+        let mut st = RegistryState;
+        let _ = host.event_queue.roundtrip(&mut st).map_err(|e| format!("roundtrip failed: {}", e))?;
+        println!("[libkagami] ✓ Input devices synced and ready");
+        
         Ok(())
     }
 
@@ -306,16 +545,21 @@ mod unix_impl {
                 .bind::<wl_shm::WlShm, RegistryState, ()>(&qh, 1..=1, ())
                 .map_err(|_| "wl_shm not available".to_string())?;
             println!("libkagami: connected to compositor and wl_shm");
-            Ok(HostDisplay { conn, event_queue, globals, compositor, shm })
+            Ok(HostDisplay { conn, event_queue, globals, compositor, shm, pointer: None, keyboard: None, shell_surface: None, xdg_surface: None })
         }
 
         /// イベントのディスパッチを行う（呼び出し側でループする）
         pub fn dispatch(&mut self) -> Result<(), String> {
             let mut st = RegistryState;
-            self.event_queue
-                .dispatch_pending(&mut st)
-                .map(|_| ())
-                .map_err(|e| format!("dispatch failed: {}", e))
+            match self.event_queue.dispatch_pending(&mut st) {
+                Ok(count) => {
+                    if count > 0 {
+                        println!("[libkagami] dispatch_pending processed {} events", count);
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(format!("dispatch failed: {}", e))
+            }
         }
 
         /// 新しい surface と double-buffer を作る
@@ -346,46 +590,73 @@ mod unix_impl {
             Ok(hs)
         }
 
-        /// Try to make a surface a toplevel using wl_shell (best-effort)
+        /// Try to make a surface a toplevel using wl_shell or xdg-shell
         pub fn set_toplevel(&mut self, hs: &mut HostSurface) -> Result<(), String> {
             let qh = self.event_queue.handle();
-            // Prefer xdg_wm_base (modern) if available
-            if let Ok(xdg) = self.globals.bind::<xdg_wm_base::XdgWmBase, RegistryState, ()>(&qh, 1..=1, ()) {
-                let xsurf = xdg.get_xdg_surface(&hs.surface, &qh, ());
-                let toplevel = xsurf.get_toplevel(&qh, ());
-                // set title and app_id for compositor policies
-                let _ = toplevel.set_title("ViewKit".to_string());
-                let _ = toplevel.set_app_id("ViewKit".to_string());
-                // hint min size to avoid some compositors refusing to map
-                let _ = toplevel.set_min_size(hs.width, hs.height);
-                // Commit role assignment; do not attach a buffer until we receive and ack the
-                // xdg_surface.configure event, otherwise some compositors will error.
-                hs.surface.commit();
+            
+            // Try wl_shell first (more direct and predictable for Weston)
+            if let Ok(wl_shell) = self.globals.bind::<wl_shell::WlShell, RegistryState, ()>(&qh, 1..=1, ()) {
+                println!("[libkagami] Using wl_shell protocol...");
+                let shell_surface = wl_shell.get_shell_surface(&hs.surface, &qh, ());
+                shell_surface.set_toplevel();
+                shell_surface.set_class("ViewKit".to_string());
+                shell_surface.set_title("ViewKit".to_string());
+                println!("[libkagami] wl_shell_surface: set_toplevel, class=ViewKit, title=ViewKit");
+                
+                // CRITICAL: Store shell_surface to prevent it from being destroyed
+                self.shell_surface = Some(shell_surface);
+                
                 self.conn.flush().map_err(|e| format!("conn flush failed: {}", e))?;
-                // Wait for compositor to send configure and our Dispatch will ack it.
-                let mut st = RegistryState;
-                let _ = self.event_queue.roundtrip(&mut st).map_err(|e| format!("roundtrip failed: {}", e))?;
-                // After configure/ack, ensure the buffer we rendered into becomes the
-                // front buffer and is attached. Use swap_and_commit which flips the
-                // back buffer into front and commits it.
+                
+                // Attach buffer immediately (wl_shell doesn't require configure ack)
                 hs.swap_and_commit().map_err(|e| format!("initial buffer attach failed: {}", e))?;
-                println!("libkagami: requested xdg_wm_base xdg_surface/xdg_toplevel and attached buffer (via swap)");
+                println!("[libkagami] ✓ wl_shell buffer attached (960x540)");
+                
+                // Dispatch to let compositor process and map the window
+                for i in 0..15 {
+                    let mut st = RegistryState;
+                    let _ = self.event_queue.dispatch_pending(&mut st);
+                    if i % 5 == 0 {
+                        println!("[libkagami] wl_shell dispatch #{}", i);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
                 return Ok(());
             }
-            // fallback to wl_shell
-            match self.globals.bind::<wl_shell::WlShell, RegistryState, ()>(&qh, 1..=1, ()) {
-                Ok(wl_shell) => {
-                    let shell_surface = wl_shell.get_shell_surface(&hs.surface, &qh, ());
-                    shell_surface.set_toplevel();
-                    self.conn.flush().map_err(|e| format!("conn flush failed: {}", e))?;
-                    println!("libkagami: requested wl_shell.set_toplevel");
-                    Ok(())
+            
+            // Fallback: Try xdg-shell
+            if let Ok(xdg) = self.globals.bind::<xdg_wm_base::XdgWmBase, RegistryState, ()>(&qh, 1..=1, ()) {
+                println!("[libkagami] wl_shell not available, trying xdg-shell...");
+                let xsurf = xdg.get_xdg_surface(&hs.surface, &qh, ());
+                let toplevel = xsurf.get_toplevel(&qh, ());
+                let _ = toplevel.set_title("ViewKit".to_string());
+                let _ = toplevel.set_app_id("ViewKit".to_string());
+                println!("[libkagami] xdg-shell: title=ViewKit, app_id=ViewKit");
+                
+                // CRITICAL: Store xdg_surface to prevent it from being destroyed
+                self.xdg_surface = Some(xsurf);
+                
+                hs.surface.commit();
+                self.conn.flush().map_err(|e| format!("conn flush failed: {}", e))?;
+                println!("[libkagami] Waiting for xdg_surface configure...");
+                let mut st = RegistryState;
+                let _ = self.event_queue.roundtrip(&mut st).map_err(|e| format!("roundtrip failed: {}", e))?;
+                println!("[libkagami] ✓ xdg_surface configure acked");
+                
+                hs.swap_and_commit().map_err(|e| format!("initial buffer attach failed: {}", e))?;
+                println!("[libkagami] ✓ xdg-shell buffer attached (960x540)");
+                
+                for i in 0..5 {
+                    let mut st = RegistryState;
+                    let _ = self.event_queue.dispatch_pending(&mut st);
+                    if i == 0 || i == 4 {
+                        println!("[libkagami] xdg-shell post-commit sync #{}", i);
+                    }
                 }
-                Err(_) => {
-                    println!("libkagami: no toplevel protocol available; surface may not be mapped as window");
-                    Ok(())
-                }
+                return Ok(());
             }
+            
+            Err("Neither wl_shell nor xdg-shell available".to_string())
         }
     }
 
