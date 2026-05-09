@@ -13,7 +13,7 @@ const FLUSH_CHUNK_HEADER_SIZE: usize = 20;
 const IPC_MAX_PIXELS_FULL: usize = (IPC_BUF_SIZE - FLUSH_FULL_HEADER_SIZE) / 4;
 const IPC_MAX_PIXELS_CHUNK: usize = (IPC_BUF_SIZE - FLUSH_CHUNK_HEADER_SIZE) / 4;
 const MOUSE_BURST_LIMIT: usize = 8;
-const DOCK_PROCESS_CANDIDATES: [&str; 2] = ["/Applications/Dock.app/entry.elf", "Dock.app"];
+const DOCK_PROCESS_CANDIDATES: [&str; 2] = ["/applications/Dock.app/entry.elf", "Dock.app"];
 
 #[derive(Clone, Copy)]
 struct DragState {
@@ -555,7 +555,7 @@ impl KagamiApp {
         let kagami_tid = task::gettid();
         let arg_tid = format!("--kagami-tid={}", kagami_tid);
         let args = [arg_tid.as_str()];
-        match process::exec_with_args("/Applications/ViewKit.app/entry.elf", &args) {
+        match process::exec_with_args("/applications/ViewKit.app/entry.elf", &args) {
             Ok(pid) => println!("[KAGAMI] launched ViewKit ui_test pid={}", pid),
             Err(_) => eprintln!("[KAGAMI] failed to launch ViewKit ui_test"),
         }
@@ -565,7 +565,7 @@ impl KagamiApp {
         let kagami_tid = task::gettid();
         let arg_tid = format!("--kagami-tid={}", kagami_tid);
         let args = [arg_tid.as_str()];
-        match process::exec_with_args("/Applications/Binder.app/entry.elf", &args) {
+        match process::exec_with_args("/applications/Binder.app/entry.elf", &args) {
             Ok(pid) => println!("[KAGAMI] launched Binder pid={}", pid),
             Err(_) => eprintln!("[KAGAMI] failed to launch Binder"),
         }
@@ -575,7 +575,7 @@ impl KagamiApp {
         let kagami_tid = task::gettid();
         let arg_tid = format!("--kagami-tid={}", kagami_tid);
         let args = [arg_tid.as_str()];
-        match process::exec_with_args("/Applications/Dock.app/entry.elf", &args) {
+        match process::exec_with_args("/applications/Dock.app/entry.elf", &args) {
             Ok(pid) => println!("[KAGAMI] launched Dock pid={}", pid),
             Err(_) => eprintln!("[KAGAMI] failed to launch Dock"),
         }
@@ -585,7 +585,7 @@ impl KagamiApp {
         let kagami_tid = task::gettid();
         let arg_tid = format!("--kagami-tid={}", kagami_tid);
         let args = [arg_tid.as_str()];
-        match process::exec_with_args("/Applications/Terminal.app/entry.elf", &args) {
+        match process::exec_with_args("/applications/Terminal.app/entry.elf", &args) {
             Ok(pid) => println!("[KAGAMI] launched Terminal pid={}", pid),
             Err(_) => eprintln!("[KAGAMI] failed to launch Terminal"),
         }

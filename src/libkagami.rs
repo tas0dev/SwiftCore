@@ -760,7 +760,7 @@ mod mochi_impl {
 
     const IPC_BUF_SIZE: usize = 4128;
     const KAGAMI_PROCESS_CANDIDATES: [&str; 3] =
-        ["/Applications/Kagami.app/entry.elf", "Kagami.app", "entry.elf"];
+        ["/applications/Kagami.app/entry.elf", "Kagami.app", "entry.elf"];
 
     const OP_REQ_CREATE_WINDOW: u32 = 1;
     const OP_RES_WINDOW_CREATED: u32 = 2;
