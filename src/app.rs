@@ -1,19 +1,19 @@
-use crate::backend::WindowBackend;
+use crate::backend::{ViewKitBackend, WindowBackend};
 use crate::backend::RawOSEvent;
 
 pub struct ViewKitApp {
-    pub(crate) backend: Box<dyn WindowBackend>,
-    width: u32,
-    height: u32,
-    screen_buffer: Vec<u32>,
-    key_tap_callback: Option<extern "C" fn(key_code: u32)>,
+    pub backend: Box<dyn ViewKitBackend>,
+    pub width: u32,
+    pub height: u32,
+    pub screen_buffer: Vec<u32>,
+    pub key_tap_callback: Option<extern "C" fn(key_code: u32)>,
 }
 
 impl ViewKitApp {
-    pub fn new(backend: Box<dyn WindowBackend>) -> Self {
+    pub fn new(backend: Box<dyn ViewKitBackend>) -> Self {
         let w = 800;
         let h = 600;
-        
+
         Self {
             backend,
             width: w,

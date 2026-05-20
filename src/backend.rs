@@ -60,3 +60,7 @@ pub trait ComponentRenderer {
     /// Kome: `.selected(i == index, appIcon.selected)`
     fn set_component_property(&mut self, component_id: &str, key: &str, value: PropertyValue);
 }
+
+pub trait ViewKitBackend: WindowBackend + ComponentRenderer {}
+
+impl<T: WindowBackend + ComponentRenderer> ViewKitBackend for T {}
