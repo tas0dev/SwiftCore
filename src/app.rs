@@ -1,4 +1,4 @@
-use crate::backend::{ViewKitBackend, WindowBackend};
+use crate::backend::ViewKitBackend;
 use crate::backend::RawOSEvent;
 
 pub struct ViewKitApp {
