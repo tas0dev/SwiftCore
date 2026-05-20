@@ -1,7 +1,6 @@
-use std::ffi::{c_char, c_void, CStr};
 use crate::app::ViewKitApp;
 use crate::pipeline::core::BackendImpl;
-
+use std::ffi::{CStr, c_char, c_void};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn viewkit_app_create() -> *mut c_void {
@@ -16,7 +15,6 @@ pub extern "C" fn viewkit_app_create() -> *mut c_void {
         }
     }
 }
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn viewkit_app_destroy(app_ptr: *mut c_void) {
@@ -33,7 +31,7 @@ pub extern "C" fn viewkit_window_create(
     width: u32,
     height: u32,
     title_ptr: *const c_char,
-    no_decoration: bool
+    no_decoration: bool,
 ) {
     let app = unsafe { &mut *(app_ptr as *mut ViewKitApp) };
     let title = if title_ptr.is_null() {
@@ -43,17 +41,20 @@ pub extern "C" fn viewkit_window_create(
     };
 
     // トレイト経由でバックエンドにウィンドウ生成を命令
-    app.backend.create_window(width, height, title, no_decoration);
+    app.backend
+        .create_window(width, height, title, no_decoration);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn viewkit_register_component(
     app_ptr: *mut c_void,
     name_ptr: *const c_char,
-    html_ptr: *const c_char
+    html_ptr: *const c_char,
 ) -> bool {
     let app = unsafe { &mut *(app_ptr as *mut ViewKitApp) };
-    if name_ptr.is_null() || html_ptr.is_null() { return false; }
+    if name_ptr.is_null() || html_ptr.is_null() {
+        return false;
+    }
 
     let name = unsafe { CStr::from_ptr(name_ptr).to_str().unwrap() };
     let html = unsafe { CStr::from_ptr(html_ptr).to_str().unwrap() };
@@ -64,7 +65,9 @@ pub extern "C" fn viewkit_register_component(
 #[unsafe(no_mangle)]
 pub extern "C" fn viewkit_update_ui_tree(app_ptr: *mut c_void, tree_json_ptr: *const c_char) {
     let app = unsafe { &mut *(app_ptr as *mut ViewKitApp) };
-    if tree_json_ptr.is_null() { return; }
+    if tree_json_ptr.is_null() {
+        return;
+    }
 
     let json_str = unsafe { CStr::from_ptr(tree_json_ptr).to_str().unwrap() };
 
@@ -75,7 +78,7 @@ pub extern "C" fn viewkit_update_ui_tree(app_ptr: *mut c_void, tree_json_ptr: *c
 #[unsafe(no_mangle)]
 pub extern "C" fn viewkit_set_key_tap_callback(
     app_ptr: *mut c_void,
-    callback: extern "C" fn(key_code: u32)
+    callback: extern "C" fn(key_code: u32),
 ) {
     let app = unsafe { &mut *(app_ptr as *mut ViewKitApp) };
     app.set_key_tap_callback(callback);

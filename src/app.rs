@@ -1,5 +1,5 @@
-use crate::backend::ViewKitBackend;
 use crate::backend::RawOSEvent;
+use crate::backend::ViewKitBackend;
 
 pub struct ViewKitApp {
     pub backend: Box<dyn ViewKitBackend>,
@@ -33,7 +33,10 @@ impl ViewKitApp {
         loop {
             while let Some(event) = self.backend.poll_os_event() {
                 match event {
-                    RawOSEvent::Key { scan_code, pressed: true } => {
+                    RawOSEvent::Key {
+                        scan_code,
+                        pressed: true,
+                    } => {
                         if let Some(callback) = self.key_tap_callback {
                             callback(scan_code);
                         }
@@ -43,7 +46,8 @@ impl ViewKitApp {
                 }
             }
 
-            self.backend.swap_buffers(&self.screen_buffer, self.width, self.height);
+            self.backend
+                .swap_buffers(&self.screen_buffer, self.width, self.height);
         }
     }
 }
