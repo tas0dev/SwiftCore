@@ -2,6 +2,7 @@
 //! Provides builder structs and macro_rules! wrappers such as `card!()`, `text!()` and `button!()`
 
 use std::fmt;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -24,7 +25,91 @@ pub enum UIElement {
     Card(Card),
     Text(Text),
     Button(Button),
+    Custom(CustomComponent),
     Bundle(Vec<UIElement>),
+}
+
+#[derive(Debug, Clone)]
+pub enum ComponentContent {
+    String(String),
+    Image(String),
+    Typed { ty: String, value: String },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CustomComponent {
+    pub name: String,
+    pub attrs: BTreeMap<String, serde_json::Value>,
+    pub children: Vec<UIElement>,
+    pub content: Option<ComponentContent>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ComponentBuilder {
+    name: String,
+    attrs: BTreeMap<String, serde_json::Value>,
+    children: Vec<UIElement>,
+    content: Option<ComponentContent>,
+}
+
+impl ComponentBuilder {
+    pub fn new<T: Into<String>>(name: T) -> Self {
+        Self {
+            name: name.into(),
+            attrs: BTreeMap::new(),
+            children: Vec::new(),
+            content: None,
+        }
+    }
+
+    pub fn attr<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<serde_json::Value>,
+    {
+        self.attrs.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn children<I, E>(mut self, elems: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<UIElement>,
+    {
+        self.children.extend(elems.into_iter().map(Into::into));
+        self
+    }
+
+    pub fn content_string<T: Into<String>>(mut self, value: T) -> Self {
+        self.content = Some(ComponentContent::String(value.into()));
+        self
+    }
+
+    pub fn content_image<T: Into<String>>(mut self, value: T) -> Self {
+        self.content = Some(ComponentContent::Image(value.into()));
+        self
+    }
+
+    pub fn content_typed<T: Into<String>, U: Into<String>>(mut self, ty: T, value: U) -> Self {
+        self.content = Some(ComponentContent::Typed {
+            ty: ty.into(),
+            value: value.into(),
+        });
+        self
+    }
+
+    pub fn into_component(self) -> CustomComponent {
+        CustomComponent {
+            name: self.name,
+            attrs: self.attrs,
+            children: self.children,
+            content: self.content,
+        }
+    }
+
+    pub fn into_elem(self) -> UIElement {
+        UIElement::Custom(self.into_component())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -111,6 +196,12 @@ impl From<Button> for UIElement {
     }
 }
 
+impl From<ComponentBuilder> for UIElement {
+    fn from(b: ComponentBuilder) -> Self {
+        b.into_elem()
+    }
+}
+
 // Macros
 #[macro_export]
 macro_rules! card {
@@ -140,32 +231,8 @@ macro_rules! bundle {
      };
  }
 
-/// Register components from HTML files at compile-time.
-///
-/// Usage:
-/// components!{
-///     card: "resources/components/card.html",
-///     button: "resources/components/button.html",
-/// }
-/// This expands to a function `register_components` which takes `&mut impl ComponentRenderer`
-/// and registers the named components using the file contents (via `include_str!`).
-#[macro_export]
-macro_rules! components {
-      ( $( $name:ident : $path:literal ),* $(,)? ) => {
-          pub fn register_components<B: crate::backend::ComponentRenderer>(backend: &mut B) {
-              $(
-                  {
-                      // embed the template at compile time
-                      let tpl: &str = include_str!($path);
-                      let name = stringify!($name);
-                      if let Err(e) = backend.register_component(name, tpl) {
-                          eprintln!("failed to register component '{}': {}", name, e);
-                      }
-                  }
-              )*
-          }
-      };
-  }
+// NOTE: `components!` is now provided by the `macros` proc-macro crate.
+// Use `macros::components` (re-exported from this crate root) to register components from HTML files.
 
 impl UIElement {
     pub fn into_json(&self) -> serde_json::Value {
@@ -221,6 +288,40 @@ impl UIElement {
                     serde_json::Value::String("button".to_string()),
                 );
                 obj.insert("props".to_string(), serde_json::Value::Object(props));
+                serde_json::Value::Object(obj)
+            }
+            UIElement::Custom(c) => {
+                let children: Vec<serde_json::Value> =
+                    c.children.iter().map(|ch| ch.into_json()).collect();
+                let mut obj = serde_json::Map::new();
+                obj.insert(
+                    "component".to_string(),
+                    serde_json::Value::String(c.name.clone()),
+                );
+                obj.insert(
+                    "props".to_string(),
+                    serde_json::Value::Object(c.attrs.clone().into_iter().collect()),
+                );
+                if !children.is_empty() {
+                    obj.insert("children".to_string(), serde_json::Value::Array(children));
+                }
+                if let Some(content) = &c.content {
+                    let content_json = match content {
+                        ComponentContent::String(s) => serde_json::json!({
+                            "type": "String",
+                            "value": s,
+                        }),
+                        ComponentContent::Image(path) => serde_json::json!({
+                            "type": "Image",
+                            "value": path,
+                        }),
+                        ComponentContent::Typed { ty, value } => serde_json::json!({
+                            "type": ty,
+                            "value": value,
+                        }),
+                    };
+                    obj.insert("content".to_string(), content_json);
+                }
                 serde_json::Value::Object(obj)
             }
             UIElement::Bundle(arr) => {

@@ -1,15 +1,14 @@
 use crate::backend::{ComponentRenderer, PropertyValue, RawOSEvent, ViewKitBackend, WindowBackend};
 use image::{ImageBuffer, RgbaImage};
-use memmap2::MmapMut;
 use serde_json::Value;
 use std::any::Any;
 use std::collections::HashMap;
-use tempfile::NamedTempFile;
 use tiny_skia::{Color, Paint, Pixmap, Transform};
 #[cfg(feature = "wayland")]
 use wayland_client::Connection;
 
 /// シンプルなコンポーネントテンプレートのキャッシュ構造
+#[allow(unused)]
 struct ComponentTemplate {
     name: String,
     raw: String,
@@ -121,7 +120,9 @@ fn render_node_draw(pixmap: &mut Pixmap, node: &UiNode, x: i32, y: i32, width: i
             render_node_draw(pixmap, child, x + 4, cy + 4, width - 8, child_h - 8);
         }
     } else {
-        if node.props.get("text").is_some() {
+        let has_textish_content = node.props.get("text").is_some()
+            || matches!(node.content.as_ref().map(|c| c.ty.as_str()), Some("String"));
+        if has_textish_content {
             let mut label_paint = Paint::default();
             label_paint.set_color(Color::from_rgba8(0x11, 0x11, 0x11, 255));
             let lw = (width as f32 * 0.6).max(8.0);
@@ -136,11 +137,20 @@ fn render_node_draw(pixmap: &mut Pixmap, node: &UiNode, x: i32, y: i32, width: i
 
 /// 内部的な UI ノード表現（JSON から復元）
 #[derive(Debug, Clone)]
+#[allow(unused)]
 struct UiNode {
     id: Option<String>,
     component: String,
     props: serde_json::Map<String, Value>,
+    content: Option<UiContent>,
     children: Vec<UiNode>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(unused)]
+struct UiContent {
+    ty: String,
+    value: String,
 }
 
 impl UiNode {
@@ -163,6 +173,14 @@ impl UiNode {
             .and_then(|p| p.as_object())
             .cloned()
             .unwrap_or_default();
+        let content = obj.get("content").and_then(|c| c.as_object()).and_then(|m| {
+            let ty = m.get("type").and_then(|v| v.as_str())?;
+            let value = m.get("value").and_then(|v| v.as_str())?;
+            Some(UiContent {
+                ty: ty.to_string(),
+                value: value.to_string(),
+            })
+        });
         let mut children = Vec::new();
         if let Some(arr) = obj.get("children").and_then(|c| c.as_array()) {
             for child in arr.iter() {
@@ -175,6 +193,7 @@ impl UiNode {
             id,
             component,
             props,
+            content,
             children,
         })
     }
@@ -355,7 +374,7 @@ impl ComponentRenderer for BackendImpl {
                 if let Some(root_node) = UiNode::from_value(&v) {
                     // Prepare pixmap
                     let mut pixmap =
-                        Pixmap::new(self.width as u32, self.height as u32).expect("pixmap alloc");
+                        Pixmap::new(self.width, self.height).expect("pixmap alloc");
                     // background
                     let mut bg_paint = Paint::default();
                     bg_paint.set_color(Color::from_rgba8(0xFF, 0xFF, 0xFF, 255));
