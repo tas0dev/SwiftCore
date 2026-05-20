@@ -62,5 +62,3 @@ pub trait ComponentRenderer {
 }
 
 pub trait ViewKitBackend: WindowBackend + ComponentRenderer {}
-
-impl<T: WindowBackend + ComponentRenderer> ViewKitBackend for T {}

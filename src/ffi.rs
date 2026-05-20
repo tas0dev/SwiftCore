@@ -1,29 +1,22 @@
 use std::ffi::{c_char, c_void, CStr};
-use crate::backend::{WindowBackend, ComponentRenderer, PropertyValue};
 use crate::app::ViewKitApp;
-struct MockBackend;
+use crate::pipeline::core::BackendImpl;
 
-impl WindowBackend for MockBackend {
-    fn create_window(&mut self, _w: u32, _h: u32, _title: &str, _no_dec: bool) {}
-    fn swap_buffers(&mut self, _buf: &[u32], _w: u32, _h: u32) {}
-    fn poll_os_event(&mut self) -> Option<crate::backend::RawOSEvent> { None }
-    fn as_any(&self) -> &dyn std::any::Any { self }
-}
-
-impl ComponentRenderer for MockBackend {
-    fn register_component(&mut self, _name: &str, _html: &str) -> Result<(), String> { Ok(()) }
-    fn update_ui_tree(&mut self, _json: &str) {}
-    fn set_component_property(&mut self, _id: &str, _key: &str, _val: PropertyValue) {}
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn viewkit_app_create() -> *mut c_void {
-    // TODO: ここでコンパイルフラグ等を見てWaylandとKagamiを切り替える
-    let backend = Box::new(MockBackend);
-    let app = ViewKitApp::new(backend);
-
-    Box::into_raw(Box::new(app)) as *mut c_void
+    match BackendImpl::new() {
+        Ok(backend) => {
+            let app = ViewKitApp::new(Box::new(backend));
+            Box::into_raw(Box::new(app)) as *mut c_void
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize Wayland backend: {}", e);
+            std::ptr::null_mut()
+        }
+    }
 }
+
 
 #[unsafe(no_mangle)]
 pub extern "C" fn viewkit_app_destroy(app_ptr: *mut c_void) {
