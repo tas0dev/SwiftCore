@@ -1902,6 +1902,7 @@ dependencies = [
  "image",
  "lightningcss",
  "memmap2",
+ "serde_json",
  "tempfile",
  "tiny-skia",
  "ui_layout",
